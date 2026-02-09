@@ -1,5 +1,7 @@
 """
-LLM Service - Gemini AI integration for Sentri AI Assistant
+LLM Service - Multi-Provider AI Integration for Sentri AI Assistant
+Supports: Claude (Anthropic), Gemini (Google), Local Fallback
+
 The LLM is used for generating explanations, guidance, and general chat.
 Risk decisions are made by the rules engine (risk_engine.py).
 """
@@ -7,7 +9,21 @@ import os
 import re
 import logging
 from typing import Optional, Dict, List
-import google.generativeai as genai
+from enum import Enum
+
+# Import LLM providers
+try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+
 from .prompts import (
     SYSTEM_PROMPT,
     SCAN_EXPLANATION_PROMPT,
@@ -21,14 +37,62 @@ from .prompts import (
 
 logger = logging.getLogger(__name__)
 
-# Configuration - Gemini API
-GEMINI_API_KEY = "AIzaSyAKKF7sUvihCyTBPteCW3ywwFzFmJBoatM"
-MODEL = "gemini-2.0-flash"
+
+# ============================================
+# LLM PROVIDER CONFIGURATION
+# ============================================
+
+class LLMProvider(Enum):
+    CLAUDE = "claude"
+    GEMINI = "gemini"
+    LOCAL = "local"
+
+
+# Configuration - Set your preferred provider and API keys
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "claude").lower()  # claude, gemini, or local
+
+# Claude (Anthropic) Configuration
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")  # Set your Anthropic API key
+CLAUDE_MODEL = "claude-3-haiku-20240307"  # Fast and affordable
+
+# Gemini Configuration  
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyAKKF7sUvihCyTBPteCW3ywwFzFmJBoatM")
+GEMINI_MODEL = "gemini-2.0-flash"
+
+# Global settings
 LLM_ENABLED = True
 
-# Initialize Gemini
-genai.configure(api_key=GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel(MODEL)
+# Initialize providers
+claude_client = None
+gemini_model = None
+
+if ANTHROPIC_AVAILABLE and ANTHROPIC_API_KEY:
+    try:
+        claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        logger.info("✅ Claude (Anthropic) initialized")
+    except Exception as e:
+        logger.warning(f"Claude init failed: {e}")
+
+if GEMINI_AVAILABLE and GEMINI_API_KEY:
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        gemini_model = genai.GenerativeModel(GEMINI_MODEL)
+        logger.info("✅ Gemini initialized")
+    except Exception as e:
+        logger.warning(f"Gemini init failed: {e}")
+
+
+def get_active_provider() -> str:
+    """Get the currently active LLM provider"""
+    if LLM_PROVIDER == "claude" and claude_client:
+        return "claude"
+    elif LLM_PROVIDER == "gemini" and gemini_model:
+        return "gemini"
+    elif gemini_model:  # Fallback to gemini if available
+        return "gemini"
+    elif claude_client:  # Fallback to claude if available
+        return "claude"
+    return "local"
 
 
 # ============================================
@@ -234,54 +298,150 @@ Your message: "{message[:40]}{'...' if len(message) > 40 else ''}"
 Try one of the above, or ask a security question!"""
 
 
+# ============================================
+# MULTI-PROVIDER LLM FUNCTIONS
+# ============================================
+
+async def call_claude(messages: List[dict], max_tokens: int = 500, system: str = None) -> Optional[str]:
+    """Call Claude (Anthropic) API"""
+    if not claude_client:
+        return None
+    
+    try:
+        # Extract system message and convert to Claude format
+        system_prompt = system or SYSTEM_PROMPT
+        claude_messages = []
+        
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role == "system":
+                system_prompt = content
+            elif role in ["user", "assistant"]:
+                claude_messages.append({"role": role, "content": content})
+        
+        # Ensure messages alternate properly (Claude requirement)
+        if not claude_messages:
+            return None
+        
+        response = claude_client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=max_tokens,
+            system=system_prompt,
+            messages=claude_messages
+        )
+        
+        return response.content[0].text
+    except Exception as e:
+        logger.error(f"Claude API error: {str(e)}")
+        return None
+
+
+async def call_gemini(messages: List[dict], max_tokens: int = 500) -> Optional[str]:
+    """Call Gemini API"""
+    if not gemini_model:
+        return None
+    
+    try:
+        # Convert messages to Gemini prompt
+        prompt_parts = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role == "system":
+                prompt_parts.append(f"[System Instructions]: {content}")
+            elif role == "assistant":
+                prompt_parts.append(f"Assistant: {content}")
+            else:
+                prompt_parts.append(f"User: {content}")
+        
+        full_prompt = "\n\n".join(prompt_parts)
+        response = gemini_model.generate_content(full_prompt)
+        return response.text
+    except Exception as e:
+        logger.error(f"Gemini API error: {str(e)}")
+        return None
+
+
+async def call_llm_provider(messages: List[dict], max_tokens: int = 500) -> Optional[str]:
+    """Call the active LLM provider with automatic fallback"""
+    provider = get_active_provider()
+    
+    if provider == "claude":
+        result = await call_claude(messages, max_tokens)
+        if result:
+            return result
+        # Fallback to Gemini
+        return await call_gemini(messages, max_tokens)
+    
+    elif provider == "gemini":
+        result = await call_gemini(messages, max_tokens)
+        if result:
+            return result
+        # Fallback to Claude
+        return await call_claude(messages, max_tokens)
+    
+    return None
+
+
 def ask_llm(user_message: str, context: str = "") -> str:
     """
-    Simple synchronous LLM call using Gemini.
+    Simple synchronous LLM call with multi-provider support and fallback chain.
+    Priority: Claude -> Gemini -> Local Knowledge Base
     Returns fallback on failure.
     """
     if not LLM_ENABLED:
-        return FALLBACK_RESPONSES.get("general", "Sentri is analyzing your request.")
-    
-    try:
-        full_message = f"{SYSTEM_PROMPT}\n\n{context}\n\nUser Message:\n{user_message}" if context else f"{SYSTEM_PROMPT}\n\nUser Message:\n{user_message}"
-        response = gemini_model.generate_content(full_message)
-        return response.text
-    except Exception as e:
-        logger.error(f"Gemini LLM error: {str(e)}")
         return get_smart_fallback(user_message)
+    
+    full_message = f"{context}\n\nUser Message:\n{user_message}" if context else f"User Message:\n{user_message}"
+    
+    # Try Claude first
+    if claude_client:
+        try:
+            response = claude_client.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=500,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": full_message}]
+            )
+            logger.info("✅ Response from Claude")
+            return response.content[0].text
+        except Exception as e:
+            logger.warning(f"Claude error, trying fallback: {str(e)[:100]}")
+    
+    # Fallback to Gemini
+    if gemini_model:
+        try:
+            prompt = f"{SYSTEM_PROMPT}\n\n{full_message}"
+            response = gemini_model.generate_content(prompt)
+            logger.info("✅ Response from Gemini")
+            return response.text
+        except Exception as e:
+            logger.warning(f"Gemini error, using local: {str(e)[:100]}")
+    
+    # Final fallback to local knowledge base
+    logger.info("📚 Using local knowledge base")
+    return get_smart_fallback(user_message)
 
 
 class LLMService:
-    """Service for LLM-powered explanations using Gemini"""
+    """Service for LLM-powered explanations with multi-provider support"""
     
     def __init__(self):
-        self.model = MODEL
+        self.provider = get_active_provider()
         self.enabled = LLM_ENABLED
+        logger.info(f"🤖 LLMService initialized with provider: {self.provider}")
     
     async def _call_llm(self, messages: List[dict], max_tokens: int = 500) -> Optional[str]:
-        """Make a call to the Gemini API"""
+        """Make a call to the active LLM provider"""
         if not self.enabled:
             return None
         
-        try:
-            # Convert OpenAI-style messages to Gemini prompt
-            prompt_parts = []
-            for msg in messages:
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
-                if role == "system":
-                    prompt_parts.append(f"[System Instructions]: {content}")
-                elif role == "assistant":
-                    prompt_parts.append(f"Assistant: {content}")
-                else:
-                    prompt_parts.append(f"User: {content}")
-            
-            full_prompt = "\n\n".join(prompt_parts)
-            response = gemini_model.generate_content(full_prompt)
-            return response.text
-        except Exception as e:
-            logger.error(f"Gemini API error: {str(e)}")
-            return None
+        return await call_llm_provider(messages, max_tokens)
+    
+    async def _call_llm_legacy(self, messages: List[dict], max_tokens: int = 500) -> Optional[str]:
+        """Legacy call for backwards compatibility - uses new multi-provider system"""
+        return await self._call_llm(messages, max_tokens)
     
     async def explain_scan_result(
         self,
