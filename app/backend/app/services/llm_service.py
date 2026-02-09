@@ -134,6 +134,9 @@ def get_local_response(message: str) -> Optional[str]:
     
     # Define priority order - longer/more specific phrases first
     priority_keywords = [
+        # Security terms (high priority)
+        "phishing", "malware", "ransomware", "virus",
+        "password", "firewall", "encryption",
         # Specific phrases (check these first)
         "capital of france", "paris",
         "capital",
@@ -145,15 +148,17 @@ def get_local_response(message: str) -> Optional[str]:
         "thank you", "thanks", "thx",
         "goodbye", "bye", "see you",
         # Single words
-        "hello", "hi", "hey",
+        "hello",
     ]
     
-    # First check priority keywords in order
+    # First check priority keywords in order (with word boundary matching)
     for pkey in priority_keywords:
-        if pkey in message_lower:
+        # Use word boundary to avoid substring matches like "hi" in "phishing"
+        if re.search(rf'\b{re.escape(pkey)}\b', message_lower):
             for keywords, response in LOCAL_KNOWLEDGE_BASE.items():
                 keyword_list = keywords.split("|")
-                if pkey in keyword_list or any(pkey in k for k in keyword_list):
+                # Use word boundary matching for accurate lookups
+                if pkey in keyword_list or any(re.search(rf'\b{re.escape(pkey)}\b', k) for k in keyword_list):
                     return response
     
     # Handle "what is X" or "explain X" patterns

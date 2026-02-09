@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 
 from .core.config import settings
 from .db.database import engine, Base
-from .api import health, auth, scans, guardian, assistant, demo
+from .api import health, auth, scans, guardian, assistant, demo, gateway
 
 
 @asynccontextmanager
@@ -62,6 +62,7 @@ app.include_router(scans.router, prefix="/api/v1/scan", tags=["security-scans"])
 app.include_router(guardian.router, prefix="/api/v1/guardian", tags=["guardian-engine"])
 app.include_router(assistant.router, prefix="/api/v1/assistant", tags=["ai-assistant"])
 app.include_router(demo.router, prefix="/api/v1/demo", tags=["demo"])
+app.include_router(gateway.router, prefix="/api/v1/gateway", tags=["agent-gateway"])
 
 
 @app.get("/")
