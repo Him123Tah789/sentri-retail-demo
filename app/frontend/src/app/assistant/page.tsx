@@ -9,7 +9,7 @@ import ActionButtons from '@/components/ActionButtons';
 import ResultCard from '@/components/ResultCard';
 import { Message, ScanResult, ScanKind, ChatResponse } from '@/lib/types';
 import { sendChatMessage, scanLink, scanEmail, scanLogs } from '@/lib/api';
-import { demoScenarios } from '@/lib/demoScenarios';
+import { demoScenarios, scanHistory, getRiskLevelFromScore, getVerdictFromScore } from '@/lib/demoScenarios';
 
 // Tool badges for visual feedback
 const ToolBadge = ({ tool }: { tool: string }) => {
@@ -34,85 +34,55 @@ const ToolBadge = ({ tool }: { tool: string }) => {
 // Risk badge for visual feedback
 const RiskBadge = ({ level, score }: { level: string; score: number }) => {
   const colors: Record<string, string> = {
-    HIGH: 'bg-red-100 text-red-700 border-red-200',
-    MEDIUM: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-    LOW: 'bg-green-100 text-green-700 border-green-200',
+    high: 'bg-red-100 text-red-700 border-red-200',
+    critical: 'bg-red-100 text-red-700 border-red-200',
+    medium: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+    low: 'bg-green-100 text-green-700 border-green-200',
   };
   
   return (
-    <span className={`inline-block px-2 py-0.5 text-xs rounded-full border ${colors[level] || colors.LOW}`}>
-      Risk: {level} ({score}/100)
+    <span className={`inline-block px-2 py-0.5 text-xs rounded-full border ${colors[level] || colors.low}`}>
+      Risk: {level.toUpperCase()} ({score}/10)
     </span>
   );
 };
 
+const getWelcomeMessage = (): Message => ({
+  id: '1',
+  role: 'assistant',
+  content: `Hello! I'm Sentri, your AI assistant for retail security.\n\n**I can help with:**\n• **Security Scans** - Paste a link, email, or logs and I'll analyze them\n• **General Questions** - Ask about phishing, security best practices, etc.\n\n⚡ **Note:** Chat resets each session. All scans are saved to your Dashboard.\n\nJust type naturally or use the scan buttons on the right!`,
+  createdAt: new Date().toISOString(),
+});
+
 export default function AssistantPage() {
   const router = useRouter();
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>([getWelcomeMessage()]);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [scanLoading, setScanLoading] = useState(false);
   const [conversationId, setConversationId] = useState<number | undefined>(undefined);
   const [lastToolUsed, setLastToolUsed] = useState<string>('none');
   const [lastRiskSummary, setLastRiskSummary] = useState<{ level: string; score: number } | null>(null);
+  const [scanCount, setScanCount] = useState(0);
 
-  // Load chat from localStorage on mount
+  // Initialize - NO localStorage (always fresh session)
   useEffect(() => {
     if (!isAuthenticated()) {
       router.push('/login');
       return;
     }
-    
-    // Try to restore chat history from localStorage
-    const savedConversationId = localStorage.getItem('sentri_conversation_id');
-    const savedMessages = localStorage.getItem('sentri_chat_messages');
-    
-    if (savedConversationId && savedMessages) {
-      try {
-        setConversationId(parseInt(savedConversationId, 10));
-        setMessages(JSON.parse(savedMessages));
-        return;
-      } catch (e) {
-        console.error('Failed to restore chat history:', e);
-      }
-    }
-    
-    // Welcome message for new conversation
-    setMessages([
-      {
-        id: '1',
-        role: 'assistant',
-        content: `Hello! I'm Sentri, your AI assistant for retail operations and security.\n\n**I can help with:**\n• **General Questions** - Ask me anything, like "explain OAuth" or "help me write an email"\n• **Security Scans** - Paste a link, email, or logs and I'll analyze them automatically\n• **Business Advice** - Planning, productivity, and decision support\n\nJust type naturally - I'll figure out if you need a chat response or a security scan!`,
-        createdAt: new Date().toISOString(),
-      },
-    ]);
+    // Always start fresh - no history stored
+    setMessages([getWelcomeMessage()]);
   }, [router]);
-  
-  // Save chat to localStorage whenever messages change
-  useEffect(() => {
-    if (messages.length > 0) {
-      localStorage.setItem('sentri_chat_messages', JSON.stringify(messages));
-    }
-    if (conversationId) {
-      localStorage.setItem('sentri_conversation_id', conversationId.toString());
-    }
-  }, [messages, conversationId]);
 
-  // Clear chat history and start fresh
+  // Clear chat - simple reset
   const handleClearChat = () => {
-    localStorage.removeItem('sentri_conversation_id');
-    localStorage.removeItem('sentri_chat_messages');
     setConversationId(undefined);
     setLastToolUsed('none');
     setLastRiskSummary(null);
-    setMessages([
-      {
-        id: '1',
-        role: 'assistant',
-        content: `Hello! I'm Sentri, your AI assistant for retail operations and security.\n\n**I can help with:**\n• **General Questions** - Ask me anything, like "explain OAuth" or "help me write an email"\n• **Security Scans** - Paste a link, email, or logs and I'll analyze them automatically\n• **Business Advice** - Planning, productivity, and decision support\n\nJust type naturally - I'll figure out if you need a chat response or a security scan!`,
-        createdAt: new Date().toISOString(),
-      },
-    ]);
+    setScanResult(null);
+    setScanCount(0);
+    setMessages([getWelcomeMessage()]);
   };
 
   const handleSendMessage = async (content: string) => {
@@ -189,15 +159,21 @@ export default function AssistantPage() {
           throw new Error('Unknown scan type');
       }
       setScanResult(result);
+      setScanCount(prev => prev + 1);
 
-      // Add to chat
+      // Add to chat (brief summary)
+      const riskEmoji = result.riskScore >= 7 ? '🚨' : result.riskScore >= 4 ? '⚠️' : '✅';
       const summaryMessage: Message = {
         id: Date.now().toString(),
         role: 'assistant',
-        content: `**Scan Complete** (${kind.toUpperCase()})\n\n**Risk Level:** ${result.riskLevel.toUpperCase()}\n**Score:** ${result.riskScore}/10\n\n${result.explanation}`,
+        content: `${riskEmoji} **Scan Complete** (${kind.toUpperCase()})\n\n**Risk Level:** ${result.riskLevel.toUpperCase()}\n**Score:** ${result.riskScore}/10\n**Verdict:** ${result.verdict}\n\n${result.explanation}\n\n📊 *Saved to Dashboard*`,
         createdAt: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, summaryMessage]);
+      
+      // Update last tool + risk for badges
+      setLastToolUsed(`scan_${kind}`);
+      setLastRiskSummary({ level: result.riskLevel, score: result.riskScore });
     } catch (error) {
       console.error('Scan error:', error);
     } finally {
@@ -224,13 +200,18 @@ export default function AssistantPage() {
                 {lastToolUsed !== 'none' && <ToolBadge tool={lastToolUsed} />}
                 {lastRiskSummary && <RiskBadge level={lastRiskSummary.level} score={lastRiskSummary.score} />}
               </div>
-              <button
-                onClick={handleClearChat}
-                className="text-sm text-slate-500 hover:text-red-500 transition-colors"
-                title="Clear chat history"
-              >
-                Clear Chat
-              </button>
+              <div className="flex items-center gap-3">
+                {scanCount > 0 && (
+                  <span className="text-xs text-slate-500">{scanCount} scan{scanCount !== 1 ? 's' : ''} this session</span>
+                )}
+                <button
+                  onClick={handleClearChat}
+                  className="text-sm text-slate-500 hover:text-red-500 transition-colors"
+                  title="Clear chat"
+                >
+                  Clear Chat
+                </button>
+              </div>
             </div>
             <ChatBox
               messages={messages}
@@ -257,10 +238,6 @@ export default function AssistantPage() {
             <h3 className="font-semibold text-slate-800 mb-3">What Sentri Can Do</h3>
             <ul className="space-y-2 text-sm text-slate-600">
               <li className="flex items-start gap-2">
-                <span className="text-blue-500">💬</span>
-                <span><strong>General Chat</strong> - Ask anything, get explanations, write emails</span>
-              </li>
-              <li className="flex items-start gap-2">
                 <span className="text-blue-500">🔗</span>
                 <span><strong>Scan Links</strong> - Paste a URL to check if it's safe</span>
               </li>
@@ -272,9 +249,18 @@ export default function AssistantPage() {
                 <span className="text-blue-500">📋</span>
                 <span><strong>Review Logs</strong> - Paste log entries for security analysis</span>
               </li>
+              <li className="flex items-start gap-2">
+                <span className="text-blue-500">💬</span>
+                <span><strong>Ask Questions</strong> - Get security advice and insights</span>
+              </li>
             </ul>
-            <p className="mt-3 text-xs text-slate-400 italic">
-              ⚠️ I may be wrong—verify critical security decisions
+            <div className="mt-3 p-2 bg-blue-50 rounded-lg">
+              <p className="text-xs text-blue-700">
+                📊 All scans are automatically saved to your Dashboard for tracking.
+              </p>
+            </div>
+            <p className="mt-2 text-xs text-slate-400 italic">
+              ⚠️ Always verify critical security decisions
             </p>
           </div>
         </div>

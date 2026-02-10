@@ -3,17 +3,34 @@
  * Real-time data storage for scans and chat history
  * 
  * Risk Score Scale (1-10):
- * - 1-2: Safe (Low risk) - Green
- * - 3-4: Caution (Medium risk) - Yellow
- * - 5-7: High Risk - Orange
- * - 8-10: Critical/Block - Red
+ * - 1-3: Safe (Low risk) - Green
+ * - 4-6: Caution (Medium risk) - Yellow
+ * - 7-8: High Risk - Orange
+ * - 9-10: Critical/Block - Red
  */
 
 import { ScanResult, ScanEvent, GuardianStatus, GuardianSummary, ChatResponse, ScanKind, RiskLevel, Message } from './types';
 
 // ============================================================
-// HISTORY STORES - In-Memory Storage
+// HISTORY STORES - In-Memory + LocalStorage Storage
 // ============================================================
+
+// Event system for real-time updates
+type ScanEventCallback = (scan: StoredScan) => void;
+const scanEventListeners: Set<ScanEventCallback> = new Set();
+
+export function onScanAdded(callback: ScanEventCallback): () => void {
+  scanEventListeners.add(callback);
+  return () => scanEventListeners.delete(callback);
+}
+
+function emitScanAdded(scan: StoredScan) {
+  scanEventListeners.forEach(cb => cb(scan));
+}
+
+// Storage keys
+const STORAGE_KEY_SCANS = 'sentri_scan_history';
+const STORAGE_KEY_GUARDIAN = 'sentri_guardian_stats';
 
 export interface StoredScan {
   id: number;
@@ -55,6 +72,36 @@ class ScanHistoryStore {
   private scans: StoredScan[] = [];
   private nextId = 1;
 
+  constructor() {
+    this.loadFromStorage();
+  }
+
+  private loadFromStorage() {
+    if (typeof window === 'undefined') return;
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_SCANS);
+      if (saved) {
+        const data = JSON.parse(saved);
+        this.scans = data.scans || [];
+        this.nextId = data.nextId || this.scans.length + 1;
+      }
+    } catch (e) {
+      console.warn('Failed to load scan history:', e);
+    }
+  }
+
+  private saveToStorage() {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(STORAGE_KEY_SCANS, JSON.stringify({
+        scans: this.scans,
+        nextId: this.nextId
+      }));
+    } catch (e) {
+      console.warn('Failed to save scan history:', e);
+    }
+  }
+
   add(scan: Omit<StoredScan, 'id' | 'createdAt'>): StoredScan {
     const newScan: StoredScan = {
       ...scan,
@@ -65,6 +112,8 @@ class ScanHistoryStore {
     if (this.scans.length > 100) {
       this.scans = this.scans.slice(0, 100);
     }
+    this.saveToStorage();
+    emitScanAdded(newScan);
     return newScan;
   }
 
@@ -74,10 +123,15 @@ class ScanHistoryStore {
   getById(id: number): StoredScan | undefined { return this.scans.find(s => s.id === id); }
   getByRiskLevel(level: RiskLevel): StoredScan[] { return this.scans.filter(s => s.riskLevel === level); }
   getHighRiskScans(): StoredScan[] { return this.scans.filter(s => s.riskScore >= 7); }
-  getCriticalScans(): StoredScan[] { return this.scans.filter(s => s.riskScore >= 8); }
+  getCriticalScans(): StoredScan[] { return this.scans.filter(s => s.riskScore >= 9); }
+  getTodayScans(): StoredScan[] {
+    const today = new Date().toDateString();
+    return this.scans.filter(s => new Date(s.createdAt).toDateString() === today);
+  }
 
   getStats() {
     const total = this.scans.length;
+    const todayScans = this.getTodayScans();
     const byLevel = {
       low: this.scans.filter(s => s.riskLevel === 'low').length,
       medium: this.scans.filter(s => s.riskLevel === 'medium').length,
@@ -91,9 +145,26 @@ class ScanHistoryStore {
       text: this.scans.filter(s => s.kind === 'text').length,
     };
     const avgRiskScore = total > 0 ? this.scans.reduce((sum, s) => sum + s.riskScore, 0) / total : 0;
-    return { total, byLevel, byKind, avgRiskScore: Math.round(avgRiskScore * 10) / 10 };
+    const todayHighRisk = todayScans.filter(s => s.riskScore >= 7).length;
+    const todaySafe = todayScans.filter(s => s.riskScore <= 3).length;
+    return { 
+      total, 
+      todayCount: todayScans.length,
+      todayHighRisk,
+      todaySafe,
+      byLevel, 
+      byKind, 
+      avgRiskScore: Math.round(avgRiskScore * 10) / 10 
+    };
   }
-  clear() { this.scans = []; this.nextId = 1; }
+  
+  clear() { 
+    this.scans = []; 
+    this.nextId = 1; 
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEY_SCANS);
+    }
+  }
 }
 
 class ChatHistoryStore {
@@ -153,33 +224,37 @@ export const chatHistory = new ChatHistoryStore();
 
 // ============================================================
 // RISK SCORE UTILITIES (1-10 Scale)
+// Industry-correct 3-tier verdict model:
+// - SAFE (0-2): Normal business communication
+// - SUSPICIOUS (3-5): Social-engineering risk, verify first
+// - HIGH RISK (6+): Likely attack, avoid/block
 // ============================================================
 
 export function getRiskLevelFromScore(score: number): RiskLevel {
-  if (score <= 2) return 'low';
-  if (score <= 4) return 'medium';
-  if (score <= 7) return 'high';
-  return 'critical';
+  if (score <= 2) return 'low';      // SAFE
+  if (score <= 5) return 'medium';   // SUSPICIOUS - VERIFY
+  if (score <= 8) return 'high';     // HIGH RISK
+  return 'critical';                  // CRITICAL - BLOCK
 }
 
 export function getVerdictFromScore(score: number): string {
-  if (score <= 2) return '✅ SAFE - No Risk Detected';
-  if (score <= 4) return '⚠️ CAUTION - Review Recommended';
-  if (score <= 7) return '🚨 HIGH RISK - Avoid';
-  return '🛑 BLOCK - Critical Threat';
+  if (score <= 2) return '✅ SAFE - Normal Communication';
+  if (score <= 5) return '⚠️ SUSPICIOUS - Verify Before Acting';
+  if (score <= 8) return '🚨 HIGH RISK - Likely Phishing';
+  return '🛑 CRITICAL - Block Immediately';
 }
 
 export function getRiskColor(score: number): string {
-  if (score <= 2) return '#22c55e';
-  if (score <= 4) return '#eab308';
-  if (score <= 7) return '#f97316';
-  return '#ef4444';
+  if (score <= 2) return '#22c55e';  // Green - Safe
+  if (score <= 5) return '#f59e0b';  // Amber - Suspicious
+  if (score <= 8) return '#f97316';  // Orange - High Risk
+  return '#ef4444';                   // Red - Critical
 }
 
 export function getRiskBadgeClass(score: number): string {
   if (score <= 2) return 'bg-green-100 text-green-700';
-  if (score <= 4) return 'bg-yellow-100 text-yellow-700';
-  if (score <= 7) return 'bg-orange-100 text-orange-700';
+  if (score <= 5) return 'bg-amber-100 text-amber-700';
+  if (score <= 8) return 'bg-orange-100 text-orange-700';
   return 'bg-red-100 text-red-700';
 }
 
@@ -275,6 +350,59 @@ const logsThreatIndicators: ThreatIndicator[] = [
   { pattern: /root|admin|administrator/i, weight: 1, description: 'Privileged account targeted' },
 ];
 
+// ============================================================
+// EMAIL METADATA EXTRACTION
+// ============================================================
+
+interface EmailMetadata {
+  subject: string | null;
+  from: string | null;
+  embeddedLinks: string[];
+}
+
+function extractEmailMetadata(emailContent: string): EmailMetadata {
+  // Extract Subject
+  const subjectMatch = emailContent.match(/^Subject:\s*(.+?)$/im);
+  const subject = subjectMatch ? subjectMatch[1].trim() : null;
+  
+  // Extract From (email address)
+  const fromMatch = emailContent.match(/^From:\s*(.+?)$/im);
+  const from = fromMatch ? fromMatch[1].trim() : null;
+  
+  // Extract embedded URLs
+  const urlRegex = /https?:\/\/[^\s<>"'\)]+/gi;
+  const embeddedLinks = emailContent.match(urlRegex) || [];
+  
+  return { subject, from, embeddedLinks };
+}
+
+function analyzeEmbeddedLinks(links: string[]): { linkRisks: Array<{ url: string; score: number; indicators: string[] }>; maxLinkScore: number } {
+  const linkRisks: Array<{ url: string; score: number; indicators: string[] }> = [];
+  let maxLinkScore = 0;
+  
+  for (const link of links) {
+    const { score, indicators } = calculateLinkRisk(link);
+    linkRisks.push({ url: link, score, indicators });
+    maxLinkScore = Math.max(maxLinkScore, score);
+  }
+  
+  return { linkRisks, maxLinkScore };
+}
+
+function calculateLinkRisk(url: string): { score: number; indicators: string[] } {
+  let score = 1;
+  const matchedIndicators: string[] = [];
+  
+  for (const indicator of linkThreatIndicators) {
+    if (indicator.pattern.test(url)) {
+      score += indicator.weight;
+      matchedIndicators.push(indicator.description);
+    }
+  }
+  
+  return { score: Math.min(score, 10), indicators: matchedIndicators };
+}
+
 function calculateRiskScore(kind: ScanKind, input: string): { score: number; indicators: string[] } {
   let indicators: ThreatIndicator[] = [];
   switch (kind) {
@@ -293,32 +421,97 @@ function calculateRiskScore(kind: ScanKind, input: string): { score: number; ind
   return { score: Math.min(score, 10), indicators: matchedIndicators };
 }
 
-function generateExplanation(kind: ScanKind, indicators: string[], score: number): string {
-  if (indicators.length === 0) {
+function generateExplanation(kind: ScanKind, indicators: string[], score: number, emailMetadata?: EmailMetadata, linkRisks?: Array<{ url: string; score: number; indicators: string[] }>): string {
+  let explanation = '';
+  
+  // Add email metadata header if available
+  if (kind === 'email' && emailMetadata) {
+    explanation += '**📧 Email Details:**\n';
+    explanation += `• **From:** ${emailMetadata.from || 'Unknown sender'}\n`;
+    explanation += `• **Subject:** ${emailMetadata.subject || 'No subject'}\n`;
+    explanation += `• **Embedded Links:** ${emailMetadata.embeddedLinks.length} link(s) found\n\n`;
+  }
+  
+  // Truly safe - no indicators at all
+  if (indicators.length === 0 && (!linkRisks || linkRisks.every(l => l.score <= 2))) {
     const safeMessages: Record<ScanKind, string> = {
       link: 'This URL appears legitimate. No suspicious patterns detected. Safe to proceed.',
-      email: 'This email appears legitimate. No phishing indicators detected.',
+      email: 'This email appears legitimate. No phishing or social-engineering indicators detected.',
       logs: 'Log activity appears normal. No security anomalies detected.',
       text: 'Content analysis complete. No security concerns identified.',
     };
-    return safeMessages[kind];
+    return explanation + safeMessages[kind];
   }
-  const severity = score >= 8 ? 'CRITICAL' : score >= 5 ? 'WARNING' : 'NOTICE';
-  const indicatorList = indicators.map(i => `• ${i}`).join('\n');
-  return `**${severity}** - ${indicators.length} threat indicator(s) detected:\n\n${indicatorList}\n\n**Risk Score: ${score}/10**`;
+  
+  // Determine severity level based on score
+  const severity = score >= 8 ? 'CRITICAL THREAT' : score >= 6 ? 'HIGH RISK' : score >= 3 ? 'SUSPICIOUS' : 'NOTICE';
+  
+  if (indicators.length > 0) {
+    const indicatorList = indicators.map(i => `• ${i}`).join('\n');
+    explanation += `**${severity}** - ${indicators.length} risk indicator(s) detected:\n\n${indicatorList}\n\n`;
+  }
+  
+  // Add embedded link analysis if available
+  if (linkRisks && linkRisks.length > 0) {
+    explanation += '**🔗 Embedded Link Analysis:**\n';
+    for (const link of linkRisks) {
+      const linkStatus = link.score <= 2 ? '✅ Safe' : link.score <= 5 ? '⚠️ Suspicious' : '🚨 DANGEROUS';
+      const shortUrl = link.url.length > 50 ? link.url.substring(0, 50) + '...' : link.url;
+      explanation += `• \`${shortUrl}\` - ${linkStatus} (${link.score}/10)\n`;
+      if (link.indicators.length > 0) {
+        explanation += `  └ ${link.indicators.join(', ')}\n`;
+      }
+    }
+    explanation += '\n';
+  }
+  
+  // Add contextual security advice for suspicious scores (3-5)
+  if (score >= 3 && score <= 5) {
+    if (kind === 'email') {
+      explanation += '\n**⚠️ Security Advisory:**\nThis email may not contain malicious links, but uses tactics commonly seen in social-engineering attacks. Retail staff should verify this request through an official vendor contact before taking any action.\n\n';
+    } else if (kind === 'link') {
+      explanation += '\n**⚠️ Security Advisory:**\nThis URL shows some suspicious characteristics. Verify the source independently before proceeding.\n\n';
+    }
+  }
+  
+  explanation += `**Risk Score: ${score}/10**`;
+  return explanation;
 }
 
 function getRecommendedActions(score: number, kind: ScanKind): string[] {
-  if (score <= 2) return ['Safe to proceed', 'No action required'];
-  if (score <= 4) return ['Verify source before proceeding', 'Exercise caution', 'Report if unusual'];
-  if (score <= 7) {
-    const actions = ['Do NOT proceed', 'Report to IT security'];
-    if (kind === 'link') actions.push('Do NOT click this link');
-    if (kind === 'email') actions.push('Mark as spam and delete');
-    if (kind === 'logs') actions.push('Investigate source IP');
+  // SAFE (0-2): Normal communication
+  if (score <= 2) {
+    return ['Safe to proceed', 'No action required'];
+  }
+  
+  // SUSPICIOUS (3-5): Social-engineering risk - VERIFY FIRST
+  if (score <= 5) {
+    const actions = ['⚠️ VERIFY before acting', 'Contact sender via official channels'];
+    if (kind === 'email') {
+      actions.push('Do NOT reply directly to this email');
+      actions.push('Check with supervisor if unsure');
+    }
+    if (kind === 'link') {
+      actions.push('Do NOT click - verify URL source first');
+    }
+    if (kind === 'logs') {
+      actions.push('Monitor for repeated patterns');
+    }
+    actions.push('Report to IT if request seems unusual');
     return actions;
   }
-  return ['🛑 BLOCK IMMEDIATELY', 'Report to IT security NOW', 'Do NOT interact', 'Document for incident report'];
+  
+  // HIGH RISK (6-8): Likely phishing/attack
+  if (score <= 8) {
+    const actions = ['🚨 Do NOT proceed', 'Report to IT security immediately'];
+    if (kind === 'link') actions.push('Do NOT click this link');
+    if (kind === 'email') actions.push('Mark as phishing and delete');
+    if (kind === 'logs') actions.push('Investigate source IP immediately');
+    return actions;
+  }
+  
+  // CRITICAL (9-10): Confirmed threat
+  return ['🛑 BLOCK IMMEDIATELY', 'Report to IT security NOW', 'Do NOT interact under any circumstances', 'Document for incident report'];
 }
 
 // ============================================================
@@ -326,10 +519,42 @@ function getRecommendedActions(score: number, kind: ScanKind): string[] {
 // ============================================================
 
 export function generateDemoScanResult(kind: ScanKind, input: string, userId: number = 1): ScanResult {
-  const { score, indicators } = calculateRiskScore(kind, input);
+  let { score, indicators } = calculateRiskScore(kind, input);
+  let emailMetadata: EmailMetadata | undefined;
+  let linkRisks: Array<{ url: string; score: number; indicators: string[] }> | undefined;
+  
+  // Special processing for email scans
+  if (kind === 'email') {
+    emailMetadata = extractEmailMetadata(input);
+    
+    // Analyze embedded links if any
+    if (emailMetadata.embeddedLinks.length > 0) {
+      const linkAnalysis = analyzeEmbeddedLinks(emailMetadata.embeddedLinks);
+      linkRisks = linkAnalysis.linkRisks;
+      
+      // Boost score if dangerous links found
+      if (linkAnalysis.maxLinkScore >= 7) {
+        score = Math.min(10, score + 2);
+        indicators.push('Dangerous embedded link detected');
+      } else if (linkAnalysis.maxLinkScore >= 5) {
+        score = Math.min(10, score + 1);
+        indicators.push('Suspicious embedded link detected');
+      }
+    }
+    
+    // Check for suspicious sender domain
+    if (emailMetadata.from) {
+      const suspiciousDomains = /(@.*malicious|@.*suspicious|@.*fake|@amaz0n|@paypa1)/i;
+      if (suspiciousDomains.test(emailMetadata.from)) {
+        score = Math.min(10, score + 2);
+        indicators.push('Suspicious sender domain');
+      }
+    }
+  }
+  
   const riskLevel = getRiskLevelFromScore(score);
   const verdict = getVerdictFromScore(score);
-  const explanation = generateExplanation(kind, indicators, score);
+  const explanation = generateExplanation(kind, indicators, score, emailMetadata, linkRisks);
   const recommendedActions = getRecommendedActions(score, kind);
   const preview = input.substring(0, 50) + (input.length > 50 ? '...' : '');
 
@@ -438,15 +663,17 @@ export function generateDemoChatResponse(message: string, userId: number = 1): C
     reply = `Great question about phishing! Here's the risk score guide:
 
 **Risk Score Scale (1-10):**
-• 1-2: ✅ Safe - No threats
-• 3-4: ⚠️ Caution - Review needed
-• 5-7: 🚨 High Risk - Avoid
-• 8-10: 🛑 BLOCK - Critical threat
+• 0-2: ✅ SAFE - Normal business communication
+• 3-5: ⚠️ SUSPICIOUS - Verify before acting
+• 6-8: 🚨 HIGH RISK - Likely phishing
+• 9-10: 🛑 CRITICAL - Block immediately
 
 **Common Phishing Red Flags:**
 • Urgent language demanding action
 • Misspelled brand names (amaz0n, paypa1)
 • Requests for credentials/payment
+
+**Important:** Score 3-5 emails are NOT "safe" - they require verification through official channels!
 
 Use the scan buttons to analyze suspicious content!`;
   }
@@ -459,9 +686,9 @@ Use the scan buttons to analyze suspicious content!`;
 • Never reuse passwords
 
 **Log Analysis Risk Scores:**
-• Few failed logins = Score 2-4
-• Multiple failures = Score 5-7
-• Brute force pattern = Score 8-10
+• Few failed logins = Score 1-2 (Safe)
+• Multiple failures = Score 3-5 (Suspicious - investigate)
+• Brute force pattern = Score 6+ (High Risk)
 
 Use the Logs scan to analyze security events.`;
   }
@@ -476,10 +703,10 @@ Total Scans: ${stats.total}
 Avg Risk Score: ${stats.avgRiskScore}/10
 
 **By Risk Level:**
-• Safe (1-2): ${stats.byLevel.low}
-• Caution (3-4): ${stats.byLevel.medium}
-• High Risk (5-7): ${stats.byLevel.high}
-• Critical (8-10): ${stats.byLevel.critical}
+• Safe (0-2): ${stats.byLevel.low}
+• Suspicious (3-5): ${stats.byLevel.medium}
+• High Risk (6-8): ${stats.byLevel.high}
+• Critical (9-10): ${stats.byLevel.critical}
 
 **Recent Scans:**
 ${recentList || 'No scans yet - try scanning a link!'}`;
@@ -487,10 +714,13 @@ ${recentList || 'No scans yet - try scanning a link!'}`;
   else if (lowerMessage.includes('score') || lowerMessage.includes('risk')) {
     reply = `**Sentri Risk Score Guide (1-10):**
 
-🟢 **1-2: SAFE** - No threats detected
-🟡 **3-4: CAUTION** - Minor concerns  
-🟠 **5-7: HIGH RISK** - Avoid interaction
-🔴 **8-10: BLOCK** - Critical threat
+🟢 **0-2: SAFE** - Normal communication
+🟡 **3-5: SUSPICIOUS** - Verify before acting  
+🟠 **6-8: HIGH RISK** - Likely phishing
+🔴 **9-10: CRITICAL** - Block immediately
+
+**Key Distinction:**
+Suspicious ≠ Safe! Score 3-5 means social-engineering risk detected. Always verify through official channels before acting.
 
 **Quick Actions:**
 • Scan Link → Phishing detection
@@ -501,9 +731,10 @@ ${recentList || 'No scans yet - try scanning a link!'}`;
     reply = `**Security Incident Reporting:**
 
 **Risk-Based Response:**
-• Score 1-4: Log for reference
-• Score 5-7: Escalate to IT (24h)
-• Score 8-10: URGENT - Report NOW
+• Score 0-2: Log for reference
+• Score 3-5: VERIFY first, then report if confirmed
+• Score 6-8: Escalate to IT immediately
+• Score 9-10: URGENT - Report NOW
 
 **Steps:**
 1. Don't click suspicious content
@@ -527,7 +758,7 @@ All scans are automatically stored in history.`;
 • High Risk Found: ${stats.byLevel.high + stats.byLevel.critical}
 
 **Risk Score Scale:**
-1-2 = Safe | 3-4 = Caution | 5-7 = High | 8-10 = Block
+0-2 = Safe | 3-5 = Suspicious | 6-8 = High | 9-10 = Critical
 
 How can I help you today?`;
   }
