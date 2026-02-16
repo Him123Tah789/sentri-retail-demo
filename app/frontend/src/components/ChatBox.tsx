@@ -37,19 +37,22 @@ export default function ChatBox({ messages, onSendMessage, loading }: ChatBoxPro
     <div className="flex flex-col flex-1">
       {/* Messages */}
       <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
+        import EvidencePanel from './EvidencePanel';
+
+        // ... (imports remain)
+
+        // ... (inside component)
         {messages.map((message) => (
           <div
             key={message.id}
-            className={`flex gap-3 animate-fade-in ${
-              message.role === 'user' ? 'flex-row-reverse' : ''
-            }`}
+            className={`flex gap-3 animate-fade-in ${message.role === 'user' ? 'flex-row-reverse' : ''
+              }`}
           >
             <div
-              className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                message.role === 'user'
+              className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${message.role === 'user'
                   ? 'bg-blue-600'
                   : 'bg-slate-200'
-              }`}
+                }`}
             >
               {message.role === 'user' ? (
                 <User className="w-4 h-4 text-white" />
@@ -57,21 +60,29 @@ export default function ChatBox({ messages, onSendMessage, loading }: ChatBoxPro
                 <Bot className="w-4 h-4 text-slate-600" />
               )}
             </div>
-            <div
-              className={`max-w-[80%] px-4 py-3 rounded-2xl ${
-                message.role === 'user'
-                  ? 'bg-blue-600 text-white rounded-tr-sm'
-                  : 'bg-slate-100 text-slate-700 rounded-tl-sm'
-              }`}
-            >
+            <div className={`flex flex-col max-w-[80%] ${message.role === 'user' ? 'items-end' : 'items-start'}`}>
               <div
-                className="text-sm leading-relaxed"
-                dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
-              />
+                className={`px-4 py-3 rounded-2xl ${message.role === 'user'
+                    ? 'bg-blue-600 text-white rounded-tr-sm'
+                    : 'bg-slate-100 text-slate-700 rounded-tl-sm'
+                  }`}
+              >
+                <div
+                  className="text-sm leading-relaxed"
+                  dangerouslySetInnerHTML={{ __html: formatContent(message.content) }}
+                />
+              </div>
+
+              {/* Render Evidence Panel if available (only for assistant) */}
+              {message.role === 'assistant' && (message as any).tool_result?.evidence && (
+                <div className="w-full max-w-md">
+                  <EvidencePanel evidence={(message as any).tool_result.evidence} />
+                </div>
+              )}
+
               <p
-                className={`text-xs mt-2 ${
-                  message.role === 'user' ? 'text-blue-200' : 'text-slate-400'
-                }`}
+                className={`text-xs mt-2 ${message.role === 'user' ? 'text-blue-200' : 'text-slate-400'
+                  }`}
               >
                 {new Date(message.createdAt).toLocaleTimeString([], {
                   hour: '2-digit',

@@ -88,6 +88,16 @@ export interface SensitivityResult {
 }
 
 // Security
+// Security
+export interface Evidence {
+  risk_score: number;
+  confidence: number;
+  top_signals: string[];
+  model_version: string;
+  latency_ms: number;
+  threat_correlation?: string;
+}
+
 export interface SecurityScanResult {
   risk_score: number;
   risk_level: string;
@@ -95,6 +105,7 @@ export interface SecurityScanResult {
   explanation: string;
   signals: string[];
   recommended_actions: string[];
+  evidence?: Evidence;
 }
 
 export interface ApiError {

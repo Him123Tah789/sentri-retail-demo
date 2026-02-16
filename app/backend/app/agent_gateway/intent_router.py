@@ -21,11 +21,4 @@ def detect_intent(mode: str, text: str) -> str:
         if looks_like_logs(text): return "scan_logs"
         return "security_chat"
 
-    if mode == "automotive":
-        if "sensitivity" in t or "slider" in t: return "auto_sensitivity"
-        if "compare" in t or "vs" in t: return "auto_compare"
-        if "tco" in t or "total cost" in t or "ownership" in t: return "auto_tco"
-        if "normalize" in t: return "auto_normalize"
-        return "auto_chat"
-
     return "chat"

@@ -9,7 +9,6 @@ interface ActionButtonsProps {
   onScan: (kind: string, input: string) => void;
   onSendMessage: (message: string) => void;
   loading?: boolean;
-  mode?: 'security' | 'automotive';
 }
 
 interface EmailInput {
@@ -19,7 +18,7 @@ interface EmailInput {
   embeddedLinks: string[];
 }
 
-export default function ActionButtons({ onScan, onSendMessage, loading, mode = 'security' }: ActionButtonsProps) {
+export default function ActionButtons({ onScan, onSendMessage, loading }: ActionButtonsProps) {
   const [activeAction, setActiveAction] = useState<ScanKind | null>(null);
   const [input, setInput] = useState('');
 
@@ -54,38 +53,6 @@ export default function ActionButtons({ onScan, onSendMessage, loading, mode = '
       icon: FileText,
       placeholder: 'Paste security logs...',
       color: 'bg-green-500 hover:bg-green-600',
-    },
-  ];
-
-  // Automotive mode quick actions
-  const autoActions = [
-    {
-      id: 'tco',
-      label: 'Calculate TCO',
-      icon: BarChart3,
-      message: 'Calculate the TCO for a standard sedan',
-      color: 'bg-emerald-500 hover:bg-emerald-600',
-    },
-    {
-      id: 'compare',
-      label: 'Compare Fuels',
-      icon: ArrowLeftRight,
-      message: 'Compare hybrid vs diesel',
-      color: 'bg-sky-500 hover:bg-sky-600',
-    },
-    {
-      id: 'usedcar',
-      label: 'Used Car Check',
-      icon: ClipboardCheck,
-      message: 'Show used car checklist',
-      color: 'bg-amber-500 hover:bg-amber-600',
-    },
-    {
-      id: 'sensitivity',
-      label: 'What-If Analysis',
-      icon: Car,
-      message: 'What if fuel cost increases by 20%',
-      color: 'bg-violet-500 hover:bg-violet-600',
     },
   ];
 
@@ -141,45 +108,10 @@ export default function ActionButtons({ onScan, onSendMessage, loading, mode = '
     }
   };
 
-  const handleAutoAction = (message: string) => {
-    onSendMessage(message);
-  };
-
   const isEmailValid = emailInput.from.trim() || emailInput.subject.trim() || emailInput.body.trim();
 
-  // ===== AUTOMOTIVE MODE =====
-  if (mode === 'automotive') {
-    return (
-      <div className="card space-y-4">
-        <h3 className="font-semibold text-slate-800">🚗 Automotive Actions</h3>
-
-        <div className="grid grid-cols-2 gap-2">
-          {autoActions.map((action) => {
-            const Icon = action.icon;
-            return (
-              <button
-                key={action.id}
-                onClick={() => handleAutoAction(action.message)}
-                disabled={loading}
-                className={`flex flex-col items-center gap-1 p-3 rounded-xl transition-all ${action.color} text-white shadow-sm hover:shadow-md hover:scale-105 disabled:opacity-50`}
-              >
-                <Icon className="w-5 h-5" />
-                <span className="text-xs font-medium">{action.label}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="pt-2 border-t border-slate-200">
-          <p className="text-xs text-slate-500">
-            💡 You can also type naturally — e.g. &quot;compare petrol vs electric&quot; or &quot;what if insurance goes up 15%&quot;
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   // ===== SECURITY MODE =====
+
   return (
     <div className="card space-y-4">
       <h3 className="font-semibold text-slate-800">🛡️ Security Actions</h3>

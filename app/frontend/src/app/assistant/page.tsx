@@ -11,16 +11,7 @@ import { Message, Mode, ScanKind, RiskLevel } from '@/lib/types';
 import { sendChatMessage, getConversation } from '@/lib/api';
 import { scanHistory } from '@/lib/demoScenarios';
 
-const getWelcomeMessage = (mode: string): Message => {
-  if (mode === 'automotive') {
-    return {
-      id: '1',
-      role: 'assistant',
-      content: `👋 Hey there!\n\nI'm **Sentri**, your automotive cost and buying advisor.\n\n**Here's what I can do for you:**\n• 📊 **TCO Calculator** — Get a full cost-of-ownership breakdown for any vehicle\n• ⚡ **Compare Fuel Types** — See hybrid vs diesel vs petrol vs EV side-by-side\n• 📋 **Used Car Checklist** — Run a weighted inspection before you buy\n• 🔄 **What-If Analysis** — Simulate how price or cost changes impact you\n\nJust type naturally or tap a quick-action button on the right!`,
-      createdAt: new Date().toISOString(),
-    };
-  }
-
+const getWelcomeMessage = (): Message => {
   return {
     id: '1',
     role: 'assistant',
@@ -30,23 +21,16 @@ const getWelcomeMessage = (mode: string): Message => {
 };
 
 export default function AssistantPage() {
-  const [mode, setMode] = useState<Mode>('security');
-  const [messages, setMessages] = useState<Message[]>([getWelcomeMessage('security')]);
+  const [mode, setMode] = useState<Mode>('security'); // Keep type for now but value is fixed
+  const [messages, setMessages] = useState<Message[]>([getWelcomeMessage()]);
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  // Mode switch handler — reset chat
-  const handleModeChange = (newMode: Mode) => {
-    setMode(newMode);
-    setMessages([getWelcomeMessage(newMode)]);
-    setConversationId(undefined);
-  };
-
   // Clear chat
   const handleClearChat = () => {
     setConversationId(undefined);
-    setMessages([getWelcomeMessage(mode)]);
+    setMessages([getWelcomeMessage()]);
   };
 
   // Load old conversation from history
@@ -55,16 +39,10 @@ export default function AssistantPage() {
       setLoading(true);
       const res = await getConversation(cid);
       if (res.messages && res.messages.length > 0) {
-        // Find mode from last message or first
-        const msgs = res.messages;
-        const lastMode = msgs[msgs.length - 1].mode as Mode;
-
-        // Update state
-        setMode(lastMode || 'security');
         setConversationId(cid);
 
         // Map messages
-        const mapped: Message[] = msgs.map((m: any, i: number) => ({
+        const mapped: Message[] = res.messages.map((m: any, i: number) => ({
           id: i.toString(),
           role: m.role,
           content: m.content,
@@ -93,7 +71,7 @@ export default function AssistantPage() {
     setLoading(true);
 
     try {
-      const response = await sendChatMessage(content, mode, conversationId);
+      const response = await sendChatMessage(content, 'security', conversationId);
 
       if (response.conversation_id) {
         setConversationId(response.conversation_id);
@@ -108,7 +86,7 @@ export default function AssistantPage() {
       setMessages((prev) => [...prev, assistantMessage]);
 
       // If it was a scan, add to dashboard history
-      if (mode === 'security' && response.tool_result) {
+      if (response.tool_result) {
         const tr = response.tool_result as any;
         let kind: ScanKind = 'text';
         if (response.intent === 'scan_link') kind = 'link';
@@ -154,9 +132,6 @@ export default function AssistantPage() {
       case 'scan_link': handleSendMessage("Scan a link for me"); break;
       case 'scan_email': handleSendMessage("Analyze this email"); break;
       case 'scan_logs': handleSendMessage("Review these security logs"); break;
-      case 'auto_tco': handleSendMessage("Calculate TCO for a standard sedan"); break;
-      case 'auto_sensitivity_fuel': handleSendMessage("Run fuel price sensitivity analysis"); break;
-      case 'auto_sensitivity_km': handleSendMessage("Run mileage sensitivity analysis"); break;
       default: handleSendMessage(action.replace(/_/g, " "));
     }
   };
@@ -178,10 +153,12 @@ export default function AssistantPage() {
       <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between pl-16">
         <div className="flex items-center gap-4">
           <h1 className="text-lg font-bold text-slate-800">Sentri</h1>
-          <ModeToggle mode={mode} onModeChange={handleModeChange} />
+          {/* Mode Toggle removed - strictly security now */}
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium border border-blue-200">
+            <span className="text-base">🛡️</span> Security Mode
+          </div>
         </div>
         <div className="flex items-center gap-4">
-          {/* Link to Dashboard */}
           {/* Link to Dashboard */}
           <a
             href="/dashboard"
@@ -230,71 +207,49 @@ export default function AssistantPage() {
         <div className="lg:w-96 space-y-4">
           {/* Voice Controls */}
           <VoiceControls
-            mode={mode}
-            setMode={handleModeChange}
+            mode={'security'}
+            setMode={() => { }}
             onSendText={handleSendMessage}
             onAction={handleVoiceAction}
             lastAssistantReply={lastAssistantReply}
           />
 
           {/* Image Scanning (Security Mode Only) */}
-          {mode === 'security' && (
-            <div className="animate-fade-in">
-              <ImageUploadCard />
-            </div>
-          )}
+          <div className="animate-fade-in">
+            <ImageUploadCard />
+          </div>
 
           <ActionButtons
             onScan={handleScan}
             onSendMessage={handleSendMessage}
             loading={loading}
-            mode={mode}
           />
 
           {/* Quick Tips */}
           <div className="card">
             <h3 className="font-semibold text-slate-800 mb-3">
-              {mode === 'automotive' ? 'Automotive Features' : 'Security Features'}
+              Security Features
             </h3>
-            {mode === 'automotive' ? (
-              <ul className="space-y-2 text-sm text-slate-600">
-                <li className="flex items-start gap-2">
-                  <span className="text-emerald-500">📊</span>
-                  <span><strong>TCO Calculator</strong> — Full cost of ownership analysis</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-sky-500">⚡</span>
-                  <span><strong>Compare Fuels</strong> — Hybrid vs diesel vs electric</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-amber-500">📋</span>
-                  <span><strong>Used Car Check</strong> — Pre-purchase checklist</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-violet-500">🔄</span>
-                  <span><strong>What-If Analysis</strong> — See cost impact of changes</span>
-                </li>
-              </ul>
-            ) : (
-              <ul className="space-y-2 text-sm text-slate-600">
-                <li className="flex items-start gap-2">
-                  <span className="text-blue-500">🔗</span>
-                  <span><strong>Scan Links</strong> — Paste a URL to check if it&apos;s safe</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-blue-500">📧</span>
-                  <span><strong>Analyze Emails</strong> — Paste email content to detect phishing</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-blue-500">📋</span>
-                  <span><strong>Review Logs</strong> — Paste log entries for security analysis</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-blue-500">💬</span>
-                  <span><strong>Ask Questions</strong> — Get security advice and insights</span>
-                </li>
-              </ul>
-            )}
+
+            <ul className="space-y-2 text-sm text-slate-600">
+              <li className="flex items-start gap-2">
+                <span className="text-blue-500">🔗</span>
+                <span><strong>Scan Links</strong> — Paste a URL to check if it&apos;s safe</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-blue-500">📧</span>
+                <span><strong>Analyze Emails</strong> — Paste email content to detect phishing</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-blue-500">📋</span>
+                <span><strong>Review Logs</strong> — Paste log entries for security analysis</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-blue-500">💬</span>
+                <span><strong>Ask Questions</strong> — Get security advice and insights</span>
+              </li>
+            </ul>
+
             <p className="mt-3 text-xs text-slate-400 italic">
               ⚠️ Always verify critical security decisions
             </p>

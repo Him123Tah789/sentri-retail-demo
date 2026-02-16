@@ -3,29 +3,23 @@
 import React from 'react';
 
 interface ModeToggleProps {
-    mode: string;
-    onModeChange: (mode: string) => void;
+  mode: string;
+  onModeChange: (mode: string) => void;
 }
 
 export default function ModeToggle({ mode, onModeChange }: ModeToggleProps) {
-    return (
-        <div className="mode-toggle">
-            <button
-                className={`mode-btn ${mode === 'security' ? 'active' : ''}`}
-                onClick={() => onModeChange('security')}
-            >
-                <span className="mode-icon">🛡️</span>
-                <span className="mode-label">Security</span>
-            </button>
-            <button
-                className={`mode-btn ${mode === 'automotive' ? 'active' : ''}`}
-                onClick={() => onModeChange('automotive')}
-            >
-                <span className="mode-icon">🚗</span>
-                <span className="mode-label">Automotive</span>
-            </button>
+  return (
+    <div className="mode-toggle">
+      <button
+        className={`mode-btn active`}
+        onClick={() => { }}
+        disabled
+      >
+        <span className="mode-icon">🛡️</span>
+        <span className="mode-label">Security Protocol Active</span>
+      </button>
 
-            <style jsx>{`
+      <style jsx>{`
         .mode-toggle {
           display: flex;
           gap: 8px;
@@ -48,14 +42,11 @@ export default function ModeToggle({ mode, onModeChange }: ModeToggleProps) {
           font-weight: 500;
           transition: all 0.2s ease;
         }
-        .mode-btn:hover {
-          color: rgba(255, 255, 255, 0.8);
-          background: rgba(255, 255, 255, 0.05);
-        }
         .mode-btn.active {
           background: linear-gradient(135deg, #6366f1, #8b5cf6);
           color: #fff;
           box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+          cursor: default;
         }
         .mode-icon {
           font-size: 1rem;
@@ -64,6 +55,6 @@ export default function ModeToggle({ mode, onModeChange }: ModeToggleProps) {
           font-family: 'Inter', sans-serif;
         }
       `}</style>
-        </div>
-    );
+    </div>
+  );
 }

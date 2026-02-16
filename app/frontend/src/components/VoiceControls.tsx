@@ -117,22 +117,14 @@ export default function VoiceControls({
             return;
         }
         if (t.includes("switch to automotive") || t.includes("automotive mode") || t.includes("car mode")) {
-            setMode("automotive");
+            speak("Automotive mode is currently disabled.");
             return;
         }
 
         // Action commands
-        if (mode === "security") {
-            if (t.includes("scan link")) return onAction("scan_link");
-            if (t.includes("analyze email") || t.includes("scan email")) return onAction("scan_email");
-            if (t.includes("summarize logs") || t.includes("scan logs")) return onAction("scan_logs");
-        } else {
-            if (t.includes("calculate tco") || t.includes("tco")) return onAction("auto_tco");
-            if (t.includes("fuel sensitivity") || (t.includes("sensitivity") && t.includes("fuel")))
-                return onAction("auto_sensitivity_fuel");
-            if (t.includes("mileage sensitivity") || (t.includes("sensitivity") && (t.includes("mileage") || t.includes("kilometer"))))
-                return onAction("auto_sensitivity_km");
-        }
+        if (t.includes("scan link")) return onAction("scan_link");
+        if (t.includes("analyze email") || t.includes("scan email")) return onAction("scan_email");
+        if (t.includes("summarize logs") || t.includes("scan logs")) return onAction("scan_logs");
 
         // Otherwise: send as normal chat message
         onSendText(text);
@@ -185,7 +177,7 @@ export default function VoiceControls({
                 </label>
 
                 <div className="text-sm text-zinc-400">
-                    Commands: “security mode”, “automotive mode”, “scan link”, “calculate tco”, “fuel sensitivity”
+                    Commands: “scan link”, “analyze email”, “scan logs”
                 </div>
             </div>
 

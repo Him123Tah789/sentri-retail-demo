@@ -4,24 +4,55 @@ from typing import Dict, Any, Optional
 from app.agent_gateway.intent_router import detect_intent
 from app.agent_gateway.response_builder import build_reply
 from app.llm.llm_router import llm_explain
-from app.llm.prompts import AUTO_EXPLAIN, SEC_EXPLAIN
-
-# Automotive tools
-from app.tools.automotive.dataset import DEMO_VEHICLES
-from app.tools.automotive.tco.calculator import calculate_tco
-from app.tools.automotive.tco.sensitivity import sensitivity
-
+from app.llm.prompts import SEC_EXPLAIN
 # Security stub (keep your existing engines here)
 from app.tools.security.stub import security_stub_scan
 
-# Simple in-memory conversations for hackathon (replace with DB later)
-_CONV: Dict[str, list[dict]] = {}
+# File-based persistence to avoid losing history on reload
+import os
+import json
+
+# Store data outside app/backend to prevent reload loops
+DATA_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../data/conversations.json"))
+os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+
+def _load_conversations() -> Dict[str, list[dict]]:
+    if not os.path.exists(DATA_FILE):
+        return {}
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading conversations: {e}")
+        return {}
+
+def _save_conversations(data: Dict[str, list[dict]]):
+    try:
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"Error saving conversations: {e}")
+
+# Load initially
+_CONV: Dict[str, list[dict]] = _load_conversations()
 
 def _get_conv(cid: str) -> list[dict]:
+    # Always reload to ensure multi-process sync (simple approach)
+    global _CONV
+    _CONV = _load_conversations()
     return _CONV.setdefault(cid, [])
+
+def _save_conv(cid: str, messages: list[dict]):
+    global _CONV
+    _CONV[cid] = messages
+    _save_conversations(_CONV)
 
 def list_conversations() -> list[dict]:
     """List all conversations with preview."""
+    # Reload to get latest
+    global _CONV
+    _CONV = _load_conversations()
+    
     out = []
     for cid, msgs in _CONV.items():
         if not msgs:
@@ -40,6 +71,9 @@ def list_conversations() -> list[dict]:
 
 def get_conversation(cid: str) -> list[dict]:
     """Get full conversation history."""
+    # Reload for latest
+    global _CONV
+    _CONV = _load_conversations()
     return _CONV.get(cid, [])
 
 def handle_chat(conversation_id: str, mode: str, message: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -47,13 +81,15 @@ def handle_chat(conversation_id: str, mode: str, message: str, context: Optional
     tool_result = None
     ts = datetime.datetime.now().isoformat()
 
-    # Save message
-    _get_conv(conversation_id).append({
+    # Load and append user message
+    messages = _get_conv(conversation_id)
+    messages.append({
         "role": "user", 
         "content": message, 
         "mode": mode,
         "timestamp": ts
     })
+    _save_conv(conversation_id, messages)
 
     if mode == "security":
         if intent in ("scan_link", "scan_email", "scan_logs"):
@@ -65,91 +101,40 @@ def handle_chat(conversation_id: str, mode: str, message: str, context: Optional
             system_extra=system_extra,
             context_json=json.dumps(tool_result or {}, ensure_ascii=False)
         )
-        _get_conv(conversation_id).append({
+        
+        # Reload to minimize race conditions, then append reply
+        messages = _get_conv(conversation_id)
+        messages.append({
             "role": "assistant", 
             "content": llm_reply, 
             "mode": mode,
             "timestamp": datetime.datetime.now().isoformat()
         })
+        _save_conv(conversation_id, messages)
+        
         return build_reply(intent, tool_result, llm_reply)
 
+    # Automotive mode removed
     if mode == "automotive":
-        # Default: pick a demo vehicle if not provided
-        vehicle_id = (context or {}).get("vehicle_id", DEMO_VEHICLES[0]["vehicle_id"])
-        vehicle = next(v for v in DEMO_VEHICLES if v["vehicle_id"] == vehicle_id)
-
-        # Default assumptions from context (frontend sends)
-        assumptions = (context or {}).get("assumptions", {})
-        # Minimal defaults if missing
-        a = {
-            "purchase_price": assumptions.get("purchase_price", vehicle["msrp"]),
-            "down_payment": assumptions.get("down_payment", 0.0),
-            "interest_rate_apr": assumptions.get("interest_rate_apr", 0.10),
-            "loan_term_months": assumptions.get("loan_term_months", 48),
-            "annual_km": assumptions.get("annual_km", 15000),
-            "fuel_price_per_liter": assumptions.get("fuel_price_per_liter", 1.2),
-            "electricity_price_per_kwh": assumptions.get("electricity_price_per_kwh", 0.2),
-            "insurance_per_year": assumptions.get("insurance_per_year", 700),
-            "tax_per_year": assumptions.get("tax_per_year", 250),
-            "maintenance_per_year": assumptions.get("maintenance_per_year", 400),
-            "fees_one_time": assumptions.get("fees_one_time", 200),
-            "tires_cost_per_set": assumptions.get("tires_cost_per_set", 350),
-            "tires_replace_km": assumptions.get("tires_replace_km", 40000),
-            "years": assumptions.get("years", 5),
-        }
-
-        if intent in ("auto_tco", "auto_chat", "auto_compare"):
-            # For hackathon: treat auto_chat as "compute TCO then explain"
-            from app.schemas.automotive import VehicleNormalized, TcoAssumptions
-            v = VehicleNormalized(**vehicle)
-            ta = TcoAssumptions(**a)
-            tco = calculate_tco(v, ta)
-            tool_result = {
-                "vehicle": vehicle,
-                "tco": tco.model_dump()
-            }
-
-        if intent == "auto_sensitivity":
-            from app.schemas.automotive import VehicleNormalized, TcoAssumptions, SensitivityRequest
-            v = VehicleNormalized(**vehicle)
-            ta = TcoAssumptions(**a)
-
-            slider = (context or {}).get("slider", "fuel_price")
-            rng = (context or {}).get("range", {"min": 0.9, "max": 1.8})
-            req = SensitivityRequest(
-                vehicle=v,
-                assumptions=ta,
-                slider=slider,
-                points=int((context or {}).get("points", 7)),
-                range_min=float(rng["min"]),
-                range_max=float(rng["max"]),
-            )
-            s = sensitivity(req)
-            tool_result = {
-                "vehicle": vehicle,
-                "sensitivity": s.model_dump()
-            }
-
-        system_extra = AUTO_EXPLAIN
-        llm_reply = llm_explain(
-            user_message=message if tool_result is None else "Explain the result and give a recommendation with tradeoffs.",
-            system_extra=system_extra,
-            context_json=json.dumps(tool_result or {}, ensure_ascii=False)
-        )
-        _get_conv(conversation_id).append({
+        llm_reply = "Sentri: Automotive mode is currently disabled."
+        messages = _get_conv(conversation_id)
+        messages.append({
             "role": "assistant", 
             "content": llm_reply, 
             "mode": mode,
             "timestamp": datetime.datetime.now().isoformat()
         })
+        _save_conv(conversation_id, messages)
         return build_reply(intent, tool_result, llm_reply)
 
     # fallback
     llm_reply = "Sentri: Unsupported mode."
-    _get_conv(conversation_id).append({
+    messages = _get_conv(conversation_id)
+    messages.append({
         "role": "assistant", 
         "content": llm_reply, 
         "mode": mode,
         "timestamp": datetime.datetime.now().isoformat()
     })
+    _save_conv(conversation_id, messages)
     return build_reply(intent, tool_result, llm_reply)
