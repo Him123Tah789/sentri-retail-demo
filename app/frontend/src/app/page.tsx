@@ -2,17 +2,12 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { isAuthenticated } from '@/lib/auth';
 
 export default function HomePage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (isAuthenticated()) {
-      router.push('/assistant');
-    } else {
-      router.push('/login');
-    }
+    router.push('/assistant');
   }, [router]);
 
   return (

@@ -1,29 +1,5 @@
-# Core FastAPI dependencies
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
-python-multipart>=0.0.6
-
-# Database
-sqlalchemy>=2.0.0
-
-# Authentication & Security
-python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4
-bcrypt==4.0.1  # Pin to 4.0.1 for passlib compatibility
-
-# Configuration
-pydantic>=2.5.0
-pydantic-settings>=2.1.0
-
-# AI & LLM Providers
-anthropic>=0.18.0  # Claude API
-google-generativeai>=0.3.0  # Gemini API
-openai>=1.0.0  # OpenAI API (optional)
-
-# Telegram Bot
-python-telegram-bot>=20.0
-
-# Development & Testing
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
-httpx>=0.25.0
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.8.2
+python-dotenv==1.0.1
+openai==1.40.0

@@ -2,13 +2,13 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { isAuthenticated } from '@/lib/auth';
+// Removed auth check
 import HeaderStatus from '@/components/HeaderStatus';
 import InsightCard from '@/components/InsightCard';
 import ActivityTable from '@/components/ActivityTable';
 import { Shield, AlertTriangle, CheckCircle, Activity, TrendingUp, Eye, RefreshCw, Trash2 } from 'lucide-react';
-import { scanHistory, onScanAdded, getRiskColor, StoredScan } from '@/lib/demoScenarios';
-import { ScanEvent } from '@/lib/types';
+import { scanHistory, onScanAdded } from '@/lib/demoScenarios';
+import { ScanEvent, ScanKind, RiskLevel } from '@/lib/types';
 
 interface DashboardStats {
   total: number;
@@ -32,7 +32,7 @@ export default function DashboardPage() {
     try {
       const currentStats = scanHistory.getStats();
       const scans = scanHistory.getRecent(20);
-      
+
       setStats(currentStats);
       setRecentScans(scans.map(scan => ({
         id: scan.id,
@@ -54,12 +54,9 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (!isAuthenticated()) {
-      router.push('/login');
-      return;
-    }
+    // No auth check needed for demo
     loadDashboardData();
-    
+
     // Subscribe to new scans for real-time updates
     const unsubscribe = onScanAdded(() => {
       loadDashboardData();
@@ -133,10 +130,9 @@ export default function DashboardPage() {
         <div className={`rounded-xl border-2 p-6 ${getStatusBg(protectionLevel)}`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <div className={`p-3 rounded-xl ${
-                protectionLevel === 'ACTIVE' ? 'bg-green-100' :
-                protectionLevel === 'WATCH' ? 'bg-yellow-100' : 'bg-red-100'
-              }`}>
+              <div className={`p-3 rounded-xl ${protectionLevel === 'ACTIVE' ? 'bg-green-100' :
+                  protectionLevel === 'WATCH' ? 'bg-yellow-100' : 'bg-red-100'
+                }`}>
                 <Shield className={`w-8 h-8 ${getStatusColor(protectionLevel)}`} />
               </div>
               <div>
@@ -153,7 +149,7 @@ export default function DashboardPage() {
                   {lastUpdated.toLocaleTimeString()}
                 </p>
               </div>
-              <button 
+              <button
                 onClick={loadDashboardData}
                 className="p-2 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 transition-colors"
                 title="Refresh"
@@ -204,7 +200,7 @@ export default function DashboardPage() {
               <h2 className="text-lg font-semibold text-slate-800">Risk Distribution</h2>
               <Activity className="w-5 h-5 text-slate-400" />
             </div>
-            
+
             <div className="grid grid-cols-4 gap-4">
               <div className="p-4 bg-green-50 rounded-lg text-center">
                 <p className="text-2xl font-bold text-green-600">{stats?.byLevel.low || 0}</p>
@@ -269,6 +265,7 @@ export default function DashboardPage() {
               <button
                 onClick={handleClearHistory}
                 className="w-full px-4 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 text-left flex items-center gap-3 transition-colors"
+                title="Deletes client-side dashboard history"
               >
                 <Trash2 className="w-5 h-5" />
                 <span>Clear History</span>

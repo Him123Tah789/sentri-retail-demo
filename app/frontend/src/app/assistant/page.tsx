@@ -1,90 +1,86 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { isAuthenticated, getUser } from '@/lib/auth';
-import HeaderStatus from '@/components/HeaderStatus';
+import { useState } from 'react';
 import ChatBox from '@/components/ChatBox';
 import ActionButtons from '@/components/ActionButtons';
-import ResultCard from '@/components/ResultCard';
-import { Message, ScanResult, ScanKind, ChatResponse } from '@/lib/types';
-import { sendChatMessage, scanLink, scanEmail, scanLogs } from '@/lib/api';
-import { demoScenarios, scanHistory, getRiskLevelFromScore, getVerdictFromScore } from '@/lib/demoScenarios';
+import ModeToggle from '@/components/ModeToggle';
+import VoiceControls from '@/components/VoiceControls';
+import HistorySidebar from '@/components/HistorySidebar';
+import { Message, Mode, ScanKind, RiskLevel } from '@/lib/types';
+import { sendChatMessage, getConversation } from '@/lib/api';
+import { scanHistory } from '@/lib/demoScenarios';
 
-// Tool badges for visual feedback
-const ToolBadge = ({ tool }: { tool: string }) => {
-  if (tool === 'none') return null;
-  
-  const badges: Record<string, { label: string; color: string }> = {
-    scan_link: { label: '🔗 Link Scanned', color: 'bg-blue-100 text-blue-700' },
-    scan_email: { label: '📧 Email Analyzed', color: 'bg-purple-100 text-purple-700' },
-    scan_logs: { label: '📋 Logs Reviewed', color: 'bg-orange-100 text-orange-700' },
+const getWelcomeMessage = (mode: string): Message => {
+  if (mode === 'automotive') {
+    return {
+      id: '1',
+      role: 'assistant',
+      content: `👋 Hey there!\n\nI'm **Sentri**, your automotive cost and buying advisor.\n\n**Here's what I can do for you:**\n• 📊 **TCO Calculator** — Get a full cost-of-ownership breakdown for any vehicle\n• ⚡ **Compare Fuel Types** — See hybrid vs diesel vs petrol vs EV side-by-side\n• 📋 **Used Car Checklist** — Run a weighted inspection before you buy\n• 🔄 **What-If Analysis** — Simulate how price or cost changes impact you\n\nJust type naturally or tap a quick-action button on the right!`,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  return {
+    id: '1',
+    role: 'assistant',
+    content: `👋 Hey there!\n\nI'm **Sentri**, your AI-powered security assistant.\n\n**Here's what I can do for you:**\n• 🔗 **Scan Links** — Paste a URL and I'll check it for phishing, malware, and threats\n• 📧 **Analyze Emails** — Forward suspicious content for deep phishing detection\n• 📋 **Review Logs** — Paste security logs for anomaly and intrusion analysis\n• 💬 **Security Q&A** — Ask anything about cybersecurity best practices\n\nJust type naturally or use the action buttons on the right!`,
+    createdAt: new Date().toISOString(),
   };
-  
-  const badge = badges[tool];
-  if (!badge) return null;
-  
-  return (
-    <span className={`inline-block px-2 py-0.5 text-xs rounded-full ${badge.color} mr-2`}>
-      {badge.label}
-    </span>
-  );
 };
-
-// Risk badge for visual feedback
-const RiskBadge = ({ level, score }: { level: string; score: number }) => {
-  const colors: Record<string, string> = {
-    high: 'bg-red-100 text-red-700 border-red-200',
-    critical: 'bg-red-100 text-red-700 border-red-200',
-    medium: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-    low: 'bg-green-100 text-green-700 border-green-200',
-  };
-  
-  return (
-    <span className={`inline-block px-2 py-0.5 text-xs rounded-full border ${colors[level] || colors.low}`}>
-      Risk: {level.toUpperCase()} ({score}/10)
-    </span>
-  );
-};
-
-const getWelcomeMessage = (): Message => ({
-  id: '1',
-  role: 'assistant',
-  content: `Hello! I'm Sentri, your AI assistant for retail security.\n\n**I can help with:**\n• **Security Scans** - Paste a link, email, or logs and I'll analyze them\n• **General Questions** - Ask about phishing, security best practices, etc.\n\n⚡ **Note:** Chat resets each session. All scans are saved to your Dashboard.\n\nJust type naturally or use the scan buttons on the right!`,
-  createdAt: new Date().toISOString(),
-});
 
 export default function AssistantPage() {
-  const router = useRouter();
-  const [messages, setMessages] = useState<Message[]>([getWelcomeMessage()]);
-  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [mode, setMode] = useState<Mode>('security');
+  const [messages, setMessages] = useState<Message[]>([getWelcomeMessage('security')]);
   const [loading, setLoading] = useState(false);
-  const [scanLoading, setScanLoading] = useState(false);
-  const [conversationId, setConversationId] = useState<number | undefined>(undefined);
-  const [lastToolUsed, setLastToolUsed] = useState<string>('none');
-  const [lastRiskSummary, setLastRiskSummary] = useState<{ level: string; score: number } | null>(null);
-  const [scanCount, setScanCount] = useState(0);
+  const [conversationId, setConversationId] = useState<string | undefined>(undefined);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
-  // Initialize - NO localStorage (always fresh session)
-  useEffect(() => {
-    if (!isAuthenticated()) {
-      router.push('/login');
-      return;
-    }
-    // Always start fresh - no history stored
-    setMessages([getWelcomeMessage()]);
-  }, [router]);
-
-  // Clear chat - simple reset
-  const handleClearChat = () => {
+  // Mode switch handler — reset chat
+  const handleModeChange = (newMode: Mode) => {
+    setMode(newMode);
+    setMessages([getWelcomeMessage(newMode)]);
     setConversationId(undefined);
-    setLastToolUsed('none');
-    setLastRiskSummary(null);
-    setScanResult(null);
-    setScanCount(0);
-    setMessages([getWelcomeMessage()]);
   };
 
+  // Clear chat
+  const handleClearChat = () => {
+    setConversationId(undefined);
+    setMessages([getWelcomeMessage(mode)]);
+  };
+
+  // Load old conversation from history
+  const handleLoadHistory = async (cid: string) => {
+    try {
+      setLoading(true);
+      const res = await getConversation(cid);
+      if (res.messages && res.messages.length > 0) {
+        // Find mode from last message or first
+        const msgs = res.messages;
+        const lastMode = msgs[msgs.length - 1].mode as Mode;
+
+        // Update state
+        setMode(lastMode || 'security');
+        setConversationId(cid);
+
+        // Map messages
+        const mapped: Message[] = msgs.map((m: any, i: number) => ({
+          id: i.toString(),
+          role: m.role,
+          content: m.content,
+          createdAt: m.timestamp || new Date().toISOString()
+        }));
+
+        setMessages(mapped);
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Failed to load conversation");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Send message via chat API
   const handleSendMessage = async (content: string) => {
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -94,31 +90,14 @@ export default function AssistantPage() {
     };
     setMessages((prev) => [...prev, userMessage]);
     setLoading(true);
-    setLastToolUsed('none');
-    setLastRiskSummary(null);
 
     try {
-      // Pass conversation_id to maintain memory across messages
-      const response = await sendChatMessage(content, conversationId);
-      
-      // Store conversation_id for subsequent messages (always update)
+      const response = await sendChatMessage(content, mode, conversationId);
+
       if (response.conversation_id) {
         setConversationId(response.conversation_id);
       }
-      
-      // Track tool usage for visual feedback
-      if (response.tool_used && response.tool_used !== 'none') {
-        setLastToolUsed(response.tool_used);
-      }
-      
-      // Track risk summary if a scan was performed
-      if (response.risk_summary) {
-        setLastRiskSummary({
-          level: response.risk_summary.level,
-          score: response.risk_summary.score
-        });
-      }
-      
+
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -126,11 +105,35 @@ export default function AssistantPage() {
         createdAt: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, assistantMessage]);
+
+      // If it was a scan, add to dashboard history
+      if (mode === 'security' && response.tool_result) {
+        const tr = response.tool_result as any;
+        let kind: ScanKind = 'text';
+        if (response.intent === 'scan_link') kind = 'link';
+        if (response.intent === 'scan_email') kind = 'email';
+        if (response.intent === 'scan_logs') kind = 'logs';
+
+        if (['link', 'email', 'logs'].includes(kind)) {
+          scanHistory.add({
+            userId: 1,
+            kind: kind,
+            input: content,
+            inputPreview: content.substring(0, 50) + (content.length > 50 ? '...' : ''),
+            riskScore: tr.risk_score || 0,
+            riskLevel: (tr.risk_level?.toLowerCase() || 'low') as RiskLevel,
+            verdict: tr.verdict || 'Unknown',
+            explanation: tr.explanation || '',
+            recommendedActions: tr.recommended_actions || []
+          });
+        }
+      }
+
     } catch (error) {
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: '⚠️ Something went wrong. Please try again.',
         createdAt: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, errorMessage]);
@@ -139,80 +142,81 @@ export default function AssistantPage() {
     }
   };
 
-  const handleScan = async (kind: ScanKind, input: string) => {
-    setScanLoading(true);
-    setScanResult(null);
+  // Scan handler — sends through chat
+  const handleScan = async (_kind: string, input: string) => {
+    await handleSendMessage(input);
+  };
 
-    try {
-      let result: ScanResult;
-      switch (kind) {
-        case 'link':
-          result = await scanLink(input);
-          break;
-        case 'email':
-          result = await scanEmail(input);
-          break;
-        case 'logs':
-          result = await scanLogs(input);
-          break;
-        default:
-          throw new Error('Unknown scan type');
-      }
-      setScanResult(result);
-      setScanCount(prev => prev + 1);
-
-      // Add to chat (brief summary)
-      const riskEmoji = result.riskScore >= 7 ? '🚨' : result.riskScore >= 4 ? '⚠️' : '✅';
-      const summaryMessage: Message = {
-        id: Date.now().toString(),
-        role: 'assistant',
-        content: `${riskEmoji} **Scan Complete** (${kind.toUpperCase()})\n\n**Risk Level:** ${result.riskLevel.toUpperCase()}\n**Score:** ${result.riskScore}/10\n**Verdict:** ${result.verdict}\n\n${result.explanation}\n\n📊 *Saved to Dashboard*`,
-        createdAt: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, summaryMessage]);
-      
-      // Update last tool + risk for badges
-      setLastToolUsed(`scan_${kind}`);
-      setLastRiskSummary({ level: result.riskLevel, score: result.riskScore });
-    } catch (error) {
-      console.error('Scan error:', error);
-    } finally {
-      setScanLoading(false);
+  // Voice action logic
+  const handleVoiceAction = (action: string) => {
+    switch (action) {
+      case 'scan_link': handleSendMessage("Scan a link for me"); break;
+      case 'scan_email': handleSendMessage("Analyze this email"); break;
+      case 'scan_logs': handleSendMessage("Review these security logs"); break;
+      case 'auto_tco': handleSendMessage("Calculate TCO for a standard sedan"); break;
+      case 'auto_sensitivity_fuel': handleSendMessage("Run fuel price sensitivity analysis"); break;
+      case 'auto_sensitivity_km': handleSendMessage("Run mileage sensitivity analysis"); break;
+      default: handleSendMessage(action.replace(/_/g, " "));
     }
   };
 
-  const handleDemoScenario = (scenario: keyof typeof demoScenarios) => {
-    const demo = demoScenarios[scenario];
-    handleScan(demo.kind as ScanKind, demo.input);
-  };
+  const lastAssistantReply = messages.length > 0 && messages[messages.length - 1].role === 'assistant'
+    ? messages[messages.length - 1].content
+    : undefined;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      <HeaderStatus />
+      {/* History Sidebar */}
+      <HistorySidebar
+        isOpen={historyOpen}
+        setIsOpen={setHistoryOpen}
+        onSelect={handleLoadHistory}
+      />
+
+      {/* Top Bar */}
+      <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between pl-16">
+        <div className="flex items-center gap-4">
+          <h1 className="text-lg font-bold text-slate-800">Sentri</h1>
+          <ModeToggle mode={mode} onModeChange={handleModeChange} />
+        </div>
+        <div className="flex items-center gap-4">
+          {/* Link to Dashboard */}
+          {/* Link to Dashboard */}
+          <a
+            href="/dashboard"
+            className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors border border-blue-200"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect width="7" height="9" x="3" y="3" rx="1" />
+              <rect width="7" height="5" x="14" y="3" rx="1" />
+              <rect width="7" height="9" x="14" y="12" rx="1" />
+              <rect width="7" height="5" x="3" y="16" rx="1" />
+            </svg>
+            Dashboard
+          </a>
+          <button
+            onClick={handleClearChat}
+            className="text-sm text-slate-500 hover:text-red-500 transition-colors"
+          >
+            Clear Chat
+          </button>
+        </div>
+      </header>
 
       <main className="flex-1 max-w-6xl mx-auto w-full p-4 flex flex-col lg:flex-row gap-6">
         {/* Chat Section */}
         <div className="flex-1 flex flex-col">
           <div className="card flex-1 flex flex-col min-h-[500px]">
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-semibold text-slate-800">AI Assistant</h2>
-                {lastToolUsed !== 'none' && <ToolBadge tool={lastToolUsed} />}
-                {lastRiskSummary && <RiskBadge level={lastRiskSummary.level} score={lastRiskSummary.score} />}
-              </div>
-              <div className="flex items-center gap-3">
-                {scanCount > 0 && (
-                  <span className="text-xs text-slate-500">{scanCount} scan{scanCount !== 1 ? 's' : ''} this session</span>
-                )}
-                <button
-                  onClick={handleClearChat}
-                  className="text-sm text-slate-500 hover:text-red-500 transition-colors"
-                  title="Clear chat"
-                >
-                  Clear Chat
-                </button>
-              </div>
-            </div>
             <ChatBox
               messages={messages}
               onSendMessage={handleSendMessage}
@@ -221,45 +225,69 @@ export default function AssistantPage() {
           </div>
         </div>
 
-        {/* Actions & Results Section */}
+        {/* Actions & Tips Section */}
         <div className="lg:w-96 space-y-4">
-          <ActionButtons
-            onScan={handleScan}
-            onDemoScenario={handleDemoScenario}
-            loading={scanLoading}
+          {/* Voice Controls */}
+          <VoiceControls
+            mode={mode}
+            setMode={handleModeChange}
+            onSendText={handleSendMessage}
+            onAction={handleVoiceAction}
+            lastAssistantReply={lastAssistantReply}
           />
 
-          {scanResult && (
-            <ResultCard result={scanResult} />
-          )}
+          <ActionButtons
+            onScan={handleScan}
+            onSendMessage={handleSendMessage}
+            loading={loading}
+            mode={mode}
+          />
 
           {/* Quick Tips */}
           <div className="card">
-            <h3 className="font-semibold text-slate-800 mb-3">What Sentri Can Do</h3>
-            <ul className="space-y-2 text-sm text-slate-600">
-              <li className="flex items-start gap-2">
-                <span className="text-blue-500">🔗</span>
-                <span><strong>Scan Links</strong> - Paste a URL to check if it's safe</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-blue-500">📧</span>
-                <span><strong>Analyze Emails</strong> - Paste email content to detect phishing</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-blue-500">📋</span>
-                <span><strong>Review Logs</strong> - Paste log entries for security analysis</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-blue-500">💬</span>
-                <span><strong>Ask Questions</strong> - Get security advice and insights</span>
-              </li>
-            </ul>
-            <div className="mt-3 p-2 bg-blue-50 rounded-lg">
-              <p className="text-xs text-blue-700">
-                📊 All scans are automatically saved to your Dashboard for tracking.
-              </p>
-            </div>
-            <p className="mt-2 text-xs text-slate-400 italic">
+            <h3 className="font-semibold text-slate-800 mb-3">
+              {mode === 'automotive' ? 'Automotive Features' : 'Security Features'}
+            </h3>
+            {mode === 'automotive' ? (
+              <ul className="space-y-2 text-sm text-slate-600">
+                <li className="flex items-start gap-2">
+                  <span className="text-emerald-500">📊</span>
+                  <span><strong>TCO Calculator</strong> — Full cost of ownership analysis</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-sky-500">⚡</span>
+                  <span><strong>Compare Fuels</strong> — Hybrid vs diesel vs electric</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-amber-500">📋</span>
+                  <span><strong>Used Car Check</strong> — Pre-purchase checklist</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-violet-500">🔄</span>
+                  <span><strong>What-If Analysis</strong> — See cost impact of changes</span>
+                </li>
+              </ul>
+            ) : (
+              <ul className="space-y-2 text-sm text-slate-600">
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-500">🔗</span>
+                  <span><strong>Scan Links</strong> — Paste a URL to check if it&apos;s safe</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-500">📧</span>
+                  <span><strong>Analyze Emails</strong> — Paste email content to detect phishing</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-500">📋</span>
+                  <span><strong>Review Logs</strong> — Paste log entries for security analysis</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-blue-500">💬</span>
+                  <span><strong>Ask Questions</strong> — Get security advice and insights</span>
+                </li>
+              </ul>
+            )}
+            <p className="mt-3 text-xs text-slate-400 italic">
               ⚠️ Always verify critical security decisions
             </p>
           </div>

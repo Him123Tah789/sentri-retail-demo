@@ -14,14 +14,14 @@ export default function HeaderStatus() {
   const [mounted, setMounted] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Load user only on client side to avoid hydration mismatch
+  // Mock user for hackathon
   useEffect(() => {
     setMounted(true);
-    setUser(getUser());
+    setUser({ id: 1, email: 'demo@sentri.ai', fullName: 'Demo User', role: 'admin' });
   }, []);
 
   const handleLogout = () => {
-    logout();
+    // Just redirect to login page for effect, though no real auth
     router.push('/login');
   };
 
@@ -51,11 +51,10 @@ export default function HeaderStatus() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                    isActive
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${isActive
                       ? 'bg-blue-50 text-blue-600'
                       : 'text-slate-600 hover:bg-slate-100'
-                  }`}
+                    }`}
                 >
                   <Icon className="w-5 h-5" />
                   <span className="font-medium">{item.label}</span>
@@ -105,11 +104,10 @@ export default function HeaderStatus() {
                     key={item.href}
                     href={item.href}
                     onClick={() => setMobileMenuOpen(false)}
-                    className={`flex items-center gap-2 px-4 py-3 rounded-lg ${
-                      isActive
+                    className={`flex items-center gap-2 px-4 py-3 rounded-lg ${isActive
                         ? 'bg-blue-50 text-blue-600'
                         : 'text-slate-600 hover:bg-slate-100'
-                    }`}
+                      }`}
                   >
                     <Icon className="w-5 h-5" />
                     <span className="font-medium">{item.label}</span>
