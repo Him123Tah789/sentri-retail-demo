@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.assistant import router as assistant_router
 from app.api.automotive import router as automotive_router
+from app.api.media import router as media_router
 
 app = FastAPI(title="Sentri Hackathon")
 

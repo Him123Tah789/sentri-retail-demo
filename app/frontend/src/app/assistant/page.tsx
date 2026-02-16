@@ -6,6 +6,7 @@ import ActionButtons from '@/components/ActionButtons';
 import ModeToggle from '@/components/ModeToggle';
 import VoiceControls from '@/components/VoiceControls';
 import HistorySidebar from '@/components/HistorySidebar';
+import ImageUploadCard from '@/components/ImageUploadCard';
 import { Message, Mode, ScanKind, RiskLevel } from '@/lib/types';
 import { sendChatMessage, getConversation } from '@/lib/api';
 import { scanHistory } from '@/lib/demoScenarios';
@@ -235,6 +236,13 @@ export default function AssistantPage() {
             onAction={handleVoiceAction}
             lastAssistantReply={lastAssistantReply}
           />
+
+          {/* Image Scanning (Security Mode Only) */}
+          {mode === 'security' && (
+            <div className="animate-fade-in">
+              <ImageUploadCard />
+            </div>
+          )}
 
           <ActionButtons
             onScan={handleScan}
