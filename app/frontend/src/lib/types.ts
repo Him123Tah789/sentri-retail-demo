@@ -162,5 +162,11 @@ export interface User {
   id: number;
   email: string;
   fullName: string;
-  role: 'admin' | 'staff' | 'analyst';
+  role: 'admin' | 'staff' | 'analyst' | 'hq_it';
+}
+
+export interface AuthResponse {
+  accessToken: string;
+  tokenType: string;
+  user: User;
 }

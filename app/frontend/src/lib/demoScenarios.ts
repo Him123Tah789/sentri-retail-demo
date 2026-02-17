@@ -147,20 +147,20 @@ class ScanHistoryStore {
     const avgRiskScore = total > 0 ? this.scans.reduce((sum, s) => sum + s.riskScore, 0) / total : 0;
     const todayHighRisk = todayScans.filter(s => s.riskScore >= 7).length;
     const todaySafe = todayScans.filter(s => s.riskScore <= 3).length;
-    return { 
-      total, 
+    return {
+      total,
       todayCount: todayScans.length,
       todayHighRisk,
       todaySafe,
-      byLevel, 
-      byKind, 
-      avgRiskScore: Math.round(avgRiskScore * 10) / 10 
+      byLevel,
+      byKind,
+      avgRiskScore: Math.round(avgRiskScore * 10) / 10
     };
   }
-  
-  clear() { 
-    this.scans = []; 
-    this.nextId = 1; 
+
+  clear() {
+    this.scans = [];
+    this.nextId = 1;
     if (typeof window !== 'undefined') {
       localStorage.removeItem(STORAGE_KEY_SCANS);
     }
@@ -364,42 +364,42 @@ function extractEmailMetadata(emailContent: string): EmailMetadata {
   // Extract Subject
   const subjectMatch = emailContent.match(/^Subject:\s*(.+?)$/im);
   const subject = subjectMatch ? subjectMatch[1].trim() : null;
-  
+
   // Extract From (email address)
   const fromMatch = emailContent.match(/^From:\s*(.+?)$/im);
   const from = fromMatch ? fromMatch[1].trim() : null;
-  
+
   // Extract embedded URLs
   const urlRegex = /https?:\/\/[^\s<>"'\)]+/gi;
   const embeddedLinks = emailContent.match(urlRegex) || [];
-  
+
   return { subject, from, embeddedLinks };
 }
 
 function analyzeEmbeddedLinks(links: string[]): { linkRisks: Array<{ url: string; score: number; indicators: string[] }>; maxLinkScore: number } {
   const linkRisks: Array<{ url: string; score: number; indicators: string[] }> = [];
   let maxLinkScore = 0;
-  
+
   for (const link of links) {
     const { score, indicators } = calculateLinkRisk(link);
     linkRisks.push({ url: link, score, indicators });
     maxLinkScore = Math.max(maxLinkScore, score);
   }
-  
+
   return { linkRisks, maxLinkScore };
 }
 
 function calculateLinkRisk(url: string): { score: number; indicators: string[] } {
   let score = 1;
   const matchedIndicators: string[] = [];
-  
+
   for (const indicator of linkThreatIndicators) {
     if (indicator.pattern.test(url)) {
       score += indicator.weight;
       matchedIndicators.push(indicator.description);
     }
   }
-  
+
   return { score: Math.min(score, 10), indicators: matchedIndicators };
 }
 
@@ -423,7 +423,7 @@ function calculateRiskScore(kind: ScanKind, input: string): { score: number; ind
 
 function generateExplanation(kind: ScanKind, indicators: string[], score: number, emailMetadata?: EmailMetadata, linkRisks?: Array<{ url: string; score: number; indicators: string[] }>): string {
   let explanation = '';
-  
+
   // Add email metadata header if available
   if (kind === 'email' && emailMetadata) {
     explanation += '**📧 Email Details:**\n';
@@ -431,7 +431,7 @@ function generateExplanation(kind: ScanKind, indicators: string[], score: number
     explanation += `• **Subject:** ${emailMetadata.subject || 'No subject'}\n`;
     explanation += `• **Embedded Links:** ${emailMetadata.embeddedLinks.length} link(s) found\n\n`;
   }
-  
+
   // Truly safe - no indicators at all
   if (indicators.length === 0 && (!linkRisks || linkRisks.every(l => l.score <= 2))) {
     const safeMessages: Record<ScanKind, string> = {
@@ -442,15 +442,15 @@ function generateExplanation(kind: ScanKind, indicators: string[], score: number
     };
     return explanation + safeMessages[kind];
   }
-  
+
   // Determine severity level based on score
   const severity = score >= 8 ? 'CRITICAL THREAT' : score >= 6 ? 'HIGH RISK' : score >= 3 ? 'SUSPICIOUS' : 'NOTICE';
-  
+
   if (indicators.length > 0) {
     const indicatorList = indicators.map(i => `• ${i}`).join('\n');
     explanation += `**${severity}** - ${indicators.length} risk indicator(s) detected:\n\n${indicatorList}\n\n`;
   }
-  
+
   // Add embedded link analysis if available
   if (linkRisks && linkRisks.length > 0) {
     explanation += '**🔗 Embedded Link Analysis:**\n';
@@ -464,7 +464,7 @@ function generateExplanation(kind: ScanKind, indicators: string[], score: number
     }
     explanation += '\n';
   }
-  
+
   // Add contextual security advice for suspicious scores (3-5)
   if (score >= 3 && score <= 5) {
     if (kind === 'email') {
@@ -473,7 +473,7 @@ function generateExplanation(kind: ScanKind, indicators: string[], score: number
       explanation += '\n**⚠️ Security Advisory:**\nThis URL shows some suspicious characteristics. Verify the source independently before proceeding.\n\n';
     }
   }
-  
+
   explanation += `**Risk Score: ${score}/10**`;
   return explanation;
 }
@@ -483,7 +483,7 @@ function getRecommendedActions(score: number, kind: ScanKind): string[] {
   if (score <= 2) {
     return ['Safe to proceed', 'No action required'];
   }
-  
+
   // SUSPICIOUS (3-5): Social-engineering risk - VERIFY FIRST
   if (score <= 5) {
     const actions = ['⚠️ VERIFY before acting', 'Contact sender via official channels'];
@@ -500,7 +500,7 @@ function getRecommendedActions(score: number, kind: ScanKind): string[] {
     actions.push('Report to IT if request seems unusual');
     return actions;
   }
-  
+
   // HIGH RISK (6-8): Likely phishing/attack
   if (score <= 8) {
     const actions = ['🚨 Do NOT proceed', 'Report to IT security immediately'];
@@ -509,7 +509,7 @@ function getRecommendedActions(score: number, kind: ScanKind): string[] {
     if (kind === 'logs') actions.push('Investigate source IP immediately');
     return actions;
   }
-  
+
   // CRITICAL (9-10): Confirmed threat
   return ['🛑 BLOCK IMMEDIATELY', 'Report to IT security NOW', 'Do NOT interact under any circumstances', 'Document for incident report'];
 }
@@ -522,16 +522,16 @@ export function generateDemoScanResult(kind: ScanKind, input: string, userId: nu
   let { score, indicators } = calculateRiskScore(kind, input);
   let emailMetadata: EmailMetadata | undefined;
   let linkRisks: Array<{ url: string; score: number; indicators: string[] }> | undefined;
-  
+
   // Special processing for email scans
   if (kind === 'email') {
     emailMetadata = extractEmailMetadata(input);
-    
+
     // Analyze embedded links if any
     if (emailMetadata.embeddedLinks.length > 0) {
       const linkAnalysis = analyzeEmbeddedLinks(emailMetadata.embeddedLinks);
       linkRisks = linkAnalysis.linkRisks;
-      
+
       // Boost score if dangerous links found
       if (linkAnalysis.maxLinkScore >= 7) {
         score = Math.min(10, score + 2);
@@ -541,7 +541,7 @@ export function generateDemoScanResult(kind: ScanKind, input: string, userId: nu
         indicators.push('Suspicious embedded link detected');
       }
     }
-    
+
     // Check for suspicious sender domain
     if (emailMetadata.from) {
       const suspiciousDomains = /(@.*malicious|@.*suspicious|@.*fake|@amaz0n|@paypa1)/i;
@@ -551,7 +551,7 @@ export function generateDemoScanResult(kind: ScanKind, input: string, userId: nu
       }
     }
   }
-  
+
   const riskLevel = getRiskLevelFromScore(score);
   const verdict = getVerdictFromScore(score);
   const explanation = generateExplanation(kind, indicators, score, emailMetadata, linkRisks);
@@ -607,7 +607,7 @@ export function generateDemoGuardianSummary(): GuardianSummary {
   const recentScans = scanHistory.getRecent(5);
   const topThreat = recentScans.find(s => s.riskScore >= 7);
   const topThreatText = topThreat ? `${topThreat.kind.toUpperCase()}: ${topThreat.verdict}` : null;
-  
+
   let protectionLevel: 'ACTIVE' | 'WATCH' | 'WARNING' = 'ACTIVE';
   if (stats.byLevel.critical > 0) protectionLevel = 'WARNING';
   else if (stats.byLevel.high > 0) protectionLevel = 'WATCH';
@@ -651,7 +651,7 @@ export function generateDemoRecentScans(limit: number): ScanEvent[] {
 // CHAT RESPONSE WITH HISTORY
 // ============================================================
 
-export function generateDemoChatResponse(message: string, userId: number = 1): ChatResponse {
+export function generateDemoChatResponse(message: string, userId: number = 1): { conversation_id: number; reply: string; tool_used: string } {
   const lowerMessage = message.toLowerCase();
   const conversation = chatHistory.getOrCreateConversation(userId);
   chatHistory.addMessage(conversation.id, 'user', message);

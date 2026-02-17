@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User } from 'lucide-react';
 import { Message } from '@/lib/types';
+import EvidencePanel from './EvidencePanel';
 
 interface ChatBoxProps {
   messages: Message[];
@@ -37,11 +38,6 @@ export default function ChatBox({ messages, onSendMessage, loading }: ChatBoxPro
     <div className="flex flex-col flex-1">
       {/* Messages */}
       <div className="flex-1 overflow-y-auto space-y-4 mb-4 pr-2">
-        import EvidencePanel from './EvidencePanel';
-
-        // ... (imports remain)
-
-        // ... (inside component)
         {messages.map((message) => (
           <div
             key={message.id}
@@ -50,8 +46,8 @@ export default function ChatBox({ messages, onSendMessage, loading }: ChatBoxPro
           >
             <div
               className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${message.role === 'user'
-                  ? 'bg-blue-600'
-                  : 'bg-slate-200'
+                ? 'bg-blue-600'
+                : 'bg-slate-200'
                 }`}
             >
               {message.role === 'user' ? (
@@ -63,8 +59,8 @@ export default function ChatBox({ messages, onSendMessage, loading }: ChatBoxPro
             <div className={`flex flex-col max-w-[80%] ${message.role === 'user' ? 'items-end' : 'items-start'}`}>
               <div
                 className={`px-4 py-3 rounded-2xl ${message.role === 'user'
-                    ? 'bg-blue-600 text-white rounded-tr-sm'
-                    : 'bg-slate-100 text-slate-700 rounded-tl-sm'
+                  ? 'bg-blue-600 text-white rounded-tr-sm'
+                  : 'bg-slate-100 text-slate-700 rounded-tl-sm'
                   }`}
               >
                 <div

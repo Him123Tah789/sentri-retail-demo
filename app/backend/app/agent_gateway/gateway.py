@@ -10,7 +10,6 @@ from app.tools.security.stub import security_stub_scan
 
 # File-based persistence to avoid losing history on reload
 import os
-import json
 
 # Store data outside app/backend to prevent reload loops
 DATA_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../data/conversations.json"))
